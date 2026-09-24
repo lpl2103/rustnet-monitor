@@ -1,0 +1,28 @@
+[package]
+name = "rustnet-monitor"
+version = "0.1.0"
+edition = "2024"
+authors = ["Leandro Pinheiro <leandro2103@gmail.com>"]
+description = "Monitor de conectividade de rede nativo para Windows em Rust"
+readme = "README.md"
+license = "MIT"
+
+[[bin]]
+name = "rustnet-monitor"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.21"
+toml = "1.1.6"
+tracing = "0.1.44"
+tracing-appender = "0.2.5"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_System_Console"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

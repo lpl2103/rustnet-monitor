@@ -1,0 +1,30 @@
+# Rust build output
+/target/
+*.pdb
+
+# Local root executable (built binary)
+/RustNetMonitor.exe
+/RustNetMonitor-*.zip
+
+# Local SQLite databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+rustnet.db
+
+# Application logs
+/logs/
+*.log
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.fleet/
+
+# OS generated files
+Thumbs.db
+[Ee]sktop.ini
+$RECYCLE.BIN/
