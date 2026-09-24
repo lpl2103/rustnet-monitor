@@ -1,10 +1,11 @@
 mod config;
+mod database;
 mod network;
 mod utils;
 
 use std::env;
 use std::net::Ipv4Addr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -15,8 +16,10 @@ use windows_sys::Win32::System::Console::{
 };
 
 use crate::config::AppConfig;
+use crate::database::{DatabaseHandle, start_database_worker};
+use crate::network::icmp::PingStatus;
 use crate::network::inspect_network;
-use crate::network::pinger::PingerService;
+use crate::network::pinger::{PingUpdate, PingerService};
 use crate::network::stats::{HostStats, LatencyQuality};
 use crate::network::types::NetworkDiagnostic;
 use crate::utils::logging::init_logging;
@@ -223,6 +226,35 @@ fn render_monitor_table(
     );
 }
 
+fn persist_updates(db_handle: &Option<DatabaseHandle>, updates: &[PingUpdate]) {
+    if let Some(db) = db_handle {
+        for update in updates {
+            let addr = update
+                .stats
+                .resolved_ip
+                .map(|ip| ip.to_string())
+                .unwrap_or_else(|| update.stats.target_str.clone());
+
+            let host_type = if update.host_name.to_lowercase().contains("gateway") {
+                "gateway"
+            } else if update.host_name.to_lowercase().contains("dns") {
+                "dns"
+            } else {
+                "custom"
+            };
+
+            db.record_sample(
+                update.host_name.clone(),
+                addr,
+                host_type.to_string(),
+                update.result.rtt_ms,
+                update.result.status == PingStatus::Success,
+                update.result.error_message.clone(),
+            );
+        }
+    }
+}
+
 fn main() {
     // 1. Configura UTF-8 nativo no console Windows
     unsafe {
@@ -255,7 +287,19 @@ fn main() {
 
     info!("Iniciando RustNet Monitor v{}...", VERSION);
 
-    // 4. Executa inspeção de rede nativa do Windows
+    // 4. Inicializa o Database Worker assíncrono (SQLite em rustnet.db)
+    let db_path = PathBuf::from(&config.database.path);
+    let (db_handle, db_thread) =
+        match start_database_worker(db_path, config.database.retention_days) {
+            Ok((handle, thread)) => (Some(handle), Some(thread)),
+            Err(e) => {
+                error!("Erro ao inicializar banco de dados SQLite: {}", e);
+                eprintln!("Aviso: Falha ao iniciar persistência SQLite: {}", e);
+                (None, None)
+            }
+        };
+
+    // 5. Executa inspeção de rede nativa do Windows
     let diagnostic = match inspect_network() {
         Ok(diag) => diag,
         Err(err) => {
@@ -265,6 +309,20 @@ fn main() {
         }
     };
 
+    // Registra evento de rede inicial no banco
+    if let (Some(db), Some(iface)) = (&db_handle, &diagnostic.active_physical_interface) {
+        db.record_event(
+            iface.friendly_name.clone(),
+            iface.if_type.to_string(),
+            "CONNECTED".to_string(),
+            Some(format!(
+                "Link Speed: {}, IPv4: {}",
+                iface.formatted_speed(),
+                iface.ipv4_addresses.join(", ")
+            )),
+        );
+    }
+
     let args: Vec<String> = env::args().collect();
     let diagnostic_only = args.iter().any(|a| a == "--diagnostic");
     let once_only = args.iter().any(|a| a == "--once");
@@ -273,6 +331,12 @@ fn main() {
     print_diagnostic(&diagnostic);
 
     if diagnostic_only {
+        if let Some(ref db) = db_handle {
+            db.stop();
+        }
+        if let Some(thread) = db_thread {
+            let _ = thread.join();
+        }
         return;
     }
 
@@ -292,10 +356,18 @@ fn main() {
     let mut pinger = PingerService::new(config.clone(), detected_gateway);
 
     if once_only {
-        println!("Executando teste único de conectividade ICMP...");
-        pinger.probe_all();
+        println!("Executando teste único de conectividade ICMP e persistência no banco...");
+        let updates = pinger.probe_all();
+        persist_updates(&db_handle, &updates);
         let stats = pinger.current_stats();
         render_monitor_table(&diagnostic, &stats, &config, 1);
+
+        if let Some(ref db) = db_handle {
+            db.stop();
+        }
+        if let Some(thread) = db_thread {
+            let _ = thread.join();
+        }
         return;
     }
 
@@ -308,7 +380,9 @@ fn main() {
 
     while RUNNING.load(Ordering::Relaxed) {
         cycle += 1;
-        pinger.probe_all();
+        let updates = pinger.probe_all();
+        persist_updates(&db_handle, &updates);
+
         let stats = pinger.current_stats();
         render_monitor_table(&diagnostic, &stats, &config, cycle);
 
@@ -323,6 +397,14 @@ fn main() {
     }
 
     println!();
+    println!("Finalizando persistência de dados no SQLite...");
+    if let Some(ref db) = db_handle {
+        db.stop();
+    }
+    if let Some(thread) = db_thread {
+        let _ = thread.join();
+    }
+
     println!("Monitoramento encerrado pelo usuário.");
     info!("RustNet Monitor finalizado.");
 }

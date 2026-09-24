@@ -22,3 +22,8 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - Cálculo de métricas estatísticas de rede: RTT atual, mínimo, médio, máximo, perda de pacotes (%) e Jitter conforme RFC 3550.
 - Classificação de qualidade visual (BOM / MÉDIO / ALTO / OFFLINE) baseada em limites configuráveis.
 - Painel em tempo real no console com suporte a encerramento gracioso via Ctrl+C.
+- Camada de persistência local em SQLite (`rusqlite` com SQLite embutido, zero DLLs externas).
+- Criação idempotente de tabelas relacionais (`hosts`, `latency_samples`, `network_events`) com índices otimizados para séries temporais.
+- Ativação do modo WAL (`PRAGMA journal_mode = WAL`) e `PRAGMA synchronous = NORMAL` para alto desempenho de disco.
+- Database Worker assíncrono desacoplado via canal `mpsc::channel` com gravações agrupadas em transações atômicas (*batch writes*).
+- Política de retenção automática configurável (padrão 30 dias) para limpeza de amostras antigas em background.
