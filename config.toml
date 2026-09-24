@@ -1,0 +1,40 @@
+[general]
+start_with_windows = false
+minimize_to_tray = true
+theme = "system"
+language = "pt-BR"
+log_level = "info"
+
+[monitoring]
+interval_secs = 5
+timeout_ms = 1000
+retry_count = 1
+
+[thresholds]
+green_max_ms = 50
+yellow_max_ms = 100
+
+[database]
+path = "rustnet.db"
+retention_days = 30
+
+[[hosts]]
+name = "Gateway Padrão"
+address = "auto"
+host_type = "gateway"
+enabled = true
+is_dynamic_gateway = true
+
+[[hosts]]
+name = "Google DNS"
+address = "8.8.8.8"
+host_type = "dns"
+enabled = true
+is_dynamic_gateway = false
+
+[[hosts]]
+name = "Cloudflare DNS"
+address = "1.1.1.1"
+host_type = "dns"
+enabled = true
+is_dynamic_gateway = false
