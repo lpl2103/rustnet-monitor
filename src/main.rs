@@ -2,58 +2,40 @@ mod config;
 mod network;
 mod utils;
 
+use std::env;
+use std::net::Ipv4Addr;
 use std::path::Path;
+use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::Duration;
 use tracing::{error, info};
-use windows_sys::Win32::System::Console::{SetConsoleCP, SetConsoleOutputCP};
+use windows_sys::Win32::System::Console::{
+    SetConsoleCP, SetConsoleCtrlHandler, SetConsoleOutputCP,
+};
 
 use crate::config::AppConfig;
 use crate::network::inspect_network;
+use crate::network::pinger::PingerService;
+use crate::network::stats::{HostStats, LatencyQuality};
+use crate::network::types::NetworkDiagnostic;
 use crate::utils::logging::init_logging;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-fn main() {
-    // Garante que o console do Windows utilize UTF-8 nativo (Code Page 65001)
-    unsafe {
-        SetConsoleOutputCP(65001);
-        SetConsoleCP(65001);
+static RUNNING: AtomicBool = AtomicBool::new(true);
+
+unsafe extern "system" fn console_ctrl_handler(ctrl_type: u32) -> i32 {
+    // 0 = CTRL_C_EVENT, 1 = CTRL_BREAK_EVENT, 2 = CTRL_CLOSE_EVENT
+    if ctrl_type <= 2 {
+        RUNNING.store(false, Ordering::SeqCst);
+        1 // TRUE: informa ao Windows que o evento foi tratado
+    } else {
+        0 // FALSE
     }
+}
 
-    // 1. Carrega ou cria as configurações locais portáteis (config.toml)
-    let config_path = Path::new("config.toml");
-    let config = match AppConfig::load_or_create(config_path) {
-        Ok(cfg) => cfg,
-        Err(e) => {
-            eprintln!(
-                "Aviso: Falha ao carregar config.toml (utilizando padrões): {}",
-                e
-            );
-            AppConfig::default()
-        }
-    };
-
-    // 2. Inicializa o sistema de telemetria e gravação de logs (logs/rustnet.log)
-    let _log_guard = match init_logging("logs", &config.general.log_level) {
-        Ok(guard) => Some(guard),
-        Err(e) => {
-            eprintln!("Aviso: Falha ao inicializar logging em arquivo: {}", e);
-            None
-        }
-    };
-
-    info!("Iniciando RustNet Monitor v{}...", VERSION);
-
-    // 3. Inspeção nativa de interfaces e rotas do Windows
-    let diagnostic = match inspect_network() {
-        Ok(diag) => diag,
-        Err(err) => {
-            error!("Erro crítico na inspeção de rede: {}", err);
-            eprintln!("Erro ao inspecionar a rede: {}", err);
-            return;
-        }
-    };
-
-    // 4. Renderização do relatório CLI formatado
+fn print_diagnostic(diagnostic: &NetworkDiagnostic) {
     println!();
     println!("RustNet Monitor v{}", VERSION);
     println!();
@@ -107,7 +89,7 @@ fn main() {
                 .virtual_reason
                 .as_deref()
                 .unwrap_or("Classificado como virtual");
-            println!("{:<30} ({})", virt.friendly_name, reason);
+            println!("{:<32} ({})", virt.friendly_name, reason);
         }
     }
     println!();
@@ -141,4 +123,206 @@ fn main() {
         println!("Metric:      {}", route6.total_metric);
     }
     println!();
+}
+
+fn format_quality_badge(quality: LatencyQuality) -> String {
+    match quality {
+        LatencyQuality::Good => "\x1b[32m● BOM    \x1b[0m".to_string(),
+        LatencyQuality::Fair => "\x1b[33m● MÉDIO  \x1b[0m".to_string(),
+        LatencyQuality::Poor => "\x1b[31m● ALTO   \x1b[0m".to_string(),
+        LatencyQuality::Offline => "\x1b[1;31m● OFFLINE\x1b[0m".to_string(),
+    }
+}
+
+fn render_monitor_table(
+    diagnostic: &NetworkDiagnostic,
+    stats_list: &[HostStats],
+    config: &AppConfig,
+    cycle: u64,
+) {
+    let iface_desc = if let Some(iface) = &diagnostic.active_physical_interface {
+        let ip = iface.ipv4_addresses.first().cloned().unwrap_or_default();
+        let gw = iface.gateway_addresses.first().cloned().unwrap_or_default();
+        format!(
+            "{} ({}) | Gateway: {} | Link: {}",
+            iface.friendly_name,
+            ip,
+            gw,
+            iface.formatted_speed()
+        )
+    } else {
+        "Nenhuma interface física ativa".to_string()
+    };
+
+    println!();
+    println!(
+        "┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐"
+    );
+    println!(
+        "│ RustNet Monitor v{:<6} - Monitoramento em Tempo Real (Ciclo #{:<4} - Pressione Ctrl+C para sair)      │",
+        VERSION, cycle
+    );
+    println!("│ Interface: {:<91} │", iface_desc);
+    println!(
+        "├──────────────────┬─────────────────┬──────────┬──────────┬──────────┬──────────┬─────────┬─────────┬─────────┬──────────┤"
+    );
+    println!(
+        "│ Host             │ Endereço        │    Atual │    Média │      Mín │      Máx │  Jitter │ Perda % │ Enviados│ Status   │"
+    );
+    println!(
+        "├──────────────────┼─────────────────┼──────────┼──────────┼──────────┼──────────┼─────────┼─────────┼─────────┼──────────┤"
+    );
+
+    for stat in stats_list {
+        let addr_display = stat
+            .resolved_ip
+            .map(|ip| ip.to_string())
+            .unwrap_or_else(|| stat.target_str.clone());
+
+        let cur_str = stat
+            .last_rtt_ms
+            .map(|r| format!("{:.0} ms", r))
+            .unwrap_or_else(|| "-".to_string());
+
+        let avg_str = stat
+            .avg_rtt_ms
+            .map(|r| format!("{:.0} ms", r))
+            .unwrap_or_else(|| "-".to_string());
+
+        let min_str = stat
+            .min_rtt_ms
+            .map(|r| format!("{:.0} ms", r))
+            .unwrap_or_else(|| "-".to_string());
+
+        let max_str = stat
+            .max_rtt_ms
+            .map(|r| format!("{:.0} ms", r))
+            .unwrap_or_else(|| "-".to_string());
+
+        let jitter_str = format!("{:.0} ms", stat.jitter_ms);
+        let loss_str = format!("{:.1}%", stat.packet_loss_pct);
+        let badge = format_quality_badge(stat.quality(&config.thresholds));
+
+        println!(
+            "│ {:<16} │ {:<15} │ {:>8} │ {:>8} │ {:>8} │ {:>8} │ {:>7} │ {:>7} │ {:>7} │ {}│",
+            stat.name,
+            addr_display,
+            cur_str,
+            avg_str,
+            min_str,
+            max_str,
+            jitter_str,
+            loss_str,
+            stat.sent_packets,
+            badge
+        );
+    }
+
+    println!(
+        "└──────────────────┴─────────────────┴──────────┴──────────┴──────────┴──────────┴─────────┴─────────┴─────────┴──────────┘"
+    );
+}
+
+fn main() {
+    // 1. Configura UTF-8 nativo no console Windows
+    unsafe {
+        SetConsoleOutputCP(65001);
+        SetConsoleCP(65001);
+        SetConsoleCtrlHandler(Some(console_ctrl_handler), 1);
+    }
+
+    // 2. Carrega configurações locais portáteis (config.toml)
+    let config_path = Path::new("config.toml");
+    let config = match AppConfig::load_or_create(config_path) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!(
+                "Aviso: Falha ao carregar config.toml (utilizando padrões): {}",
+                e
+            );
+            AppConfig::default()
+        }
+    };
+
+    // 3. Inicializa logging estruturado
+    let _log_guard = match init_logging("logs", &config.general.log_level) {
+        Ok(guard) => Some(guard),
+        Err(e) => {
+            eprintln!("Aviso: Falha ao inicializar logging em arquivo: {}", e);
+            None
+        }
+    };
+
+    info!("Iniciando RustNet Monitor v{}...", VERSION);
+
+    // 4. Executa inspeção de rede nativa do Windows
+    let diagnostic = match inspect_network() {
+        Ok(diag) => diag,
+        Err(err) => {
+            error!("Erro crítico na inspeção de rede: {}", err);
+            eprintln!("Erro ao inspecionar a rede: {}", err);
+            return;
+        }
+    };
+
+    let args: Vec<String> = env::args().collect();
+    let diagnostic_only = args.iter().any(|a| a == "--diagnostic");
+    let once_only = args.iter().any(|a| a == "--once");
+
+    // Exibe o diagnóstico detalhado
+    print_diagnostic(&diagnostic);
+
+    if diagnostic_only {
+        return;
+    }
+
+    // Extrai o IP do gateway detectado para monitoramento dinâmico
+    let detected_gateway = diagnostic
+        .default_route_ipv4
+        .as_ref()
+        .and_then(|r| Ipv4Addr::from_str(&r.next_hop).ok())
+        .or_else(|| {
+            diagnostic
+                .active_physical_interface
+                .as_ref()
+                .and_then(|iface| iface.gateway_addresses.first())
+                .and_then(|gw| Ipv4Addr::from_str(gw).ok())
+        });
+
+    let mut pinger = PingerService::new(config.clone(), detected_gateway);
+
+    if once_only {
+        println!("Executando teste único de conectividade ICMP...");
+        pinger.probe_all();
+        let stats = pinger.current_stats();
+        render_monitor_table(&diagnostic, &stats, &config, 1);
+        return;
+    }
+
+    println!(
+        "Iniciando monitoramento em tempo real (intervalo: {}s)...",
+        config.monitoring.interval_secs
+    );
+    let interval = Duration::from_secs(config.monitoring.interval_secs.max(1));
+    let mut cycle = 0;
+
+    while RUNNING.load(Ordering::Relaxed) {
+        cycle += 1;
+        pinger.probe_all();
+        let stats = pinger.current_stats();
+        render_monitor_table(&diagnostic, &stats, &config, cycle);
+
+        // Espera pelo próximo ciclo com checagem de Ctrl+C a cada 100ms
+        let steps = (interval.as_millis() / 100).max(1);
+        for _ in 0..steps {
+            if !RUNNING.load(Ordering::Relaxed) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    println!();
+    println!("Monitoramento encerrado pelo usuário.");
+    info!("RustNet Monitor finalizado.");
 }

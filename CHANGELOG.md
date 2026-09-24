@@ -17,3 +17,8 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - Consulta à tabela de rotas do Windows (`GetIpForwardTable2`) para identificação da rota padrão ativa e gateway.
 - Algoritmo multinível de discriminação entre interfaces físicas e interfaces virtuais (VMware, VirtualBox, Hyper-V, Tailscale, Radmin VPN, etc.).
 - Interface CLI de diagnóstico para inspeção em tempo real das interfaces e rotas.
+- Motor de ping ICMP nativo via Windows API (`IcmpCreateFile`, `IcmpSendEcho`, `IcmpCloseHandle`) sem necessidade de privilégios de administrador.
+- Monitoramento contínuo de múltiplos alvos: Gateway dinâmico, Google DNS (`8.8.8.8`), Cloudflare DNS (`1.1.1.1`) e hosts personalizados.
+- Cálculo de métricas estatísticas de rede: RTT atual, mínimo, médio, máximo, perda de pacotes (%) e Jitter conforme RFC 3550.
+- Classificação de qualidade visual (BOM / MÉDIO / ALTO / OFFLINE) baseada em limites configuráveis.
+- Painel em tempo real no console com suporte a encerramento gracioso via Ctrl+C.

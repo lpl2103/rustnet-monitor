@@ -1,6 +1,9 @@
 pub mod adapters;
 pub mod detector;
+pub mod icmp;
+pub mod pinger;
 pub mod routes;
+pub mod stats;
 pub mod types;
 pub mod virtual_filter;
 
