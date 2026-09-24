@@ -3,7 +3,8 @@
 *.pdb
 
 # Local root executable (built binary)
-/RustNetMonitor.exe
+/*.exe
+*.exe
 /RustNetMonitor-*.zip
 
 # Local SQLite databases
