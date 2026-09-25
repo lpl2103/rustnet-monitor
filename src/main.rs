@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 mod config;
 mod database;
 mod gui;
@@ -14,7 +16,7 @@ use std::thread;
 use std::time::Duration;
 use tracing::{error, info};
 use windows_sys::Win32::System::Console::{
-    SetConsoleCP, SetConsoleCtrlHandler, SetConsoleOutputCP,
+    AttachConsole, ATTACH_PARENT_PROCESS, SetConsoleCP, SetConsoleCtrlHandler, SetConsoleOutputCP,
 };
 
 use crate::config::AppConfig;
@@ -257,12 +259,78 @@ fn persist_updates(db_handle: &Option<DatabaseHandle>, updates: &[PingUpdate]) {
     }
 }
 
+fn load_app_icon() -> Option<egui::IconData> {
+    let icon_bytes = include_bytes!("../assets/app.png");
+    if let Ok(img) = image::load_from_memory(icon_bytes) {
+        let rgba = img.to_rgba8();
+        let (width, height) = rgba.dimensions();
+        Some(egui::IconData {
+            rgba: rgba.into_raw(),
+            width,
+            height,
+        })
+    } else {
+        None
+    }
+}
+
 fn main() {
-    // 1. Configura UTF-8 nativo no console Windows
-    unsafe {
-        SetConsoleOutputCP(65001);
-        SetConsoleCP(65001);
-        SetConsoleCtrlHandler(Some(console_ctrl_handler), 1);
+    let args: Vec<String> = env::args().collect();
+    let diagnostic_only = args.iter().any(|a| a == "--diagnostic" || a == "-d");
+    let once_only = args.iter().any(|a| a == "--once");
+    let cli_mode = args.iter().any(|a| a == "--cli" || a == "-c");
+    let is_cli = diagnostic_only
+        || once_only
+        || cli_mode
+        || args.iter().any(|a| a == "--help" || a == "-h");
+
+    // 1. Se executado via linha de comando (CLI/Diagnóstico), anexa ao console existente
+    if is_cli {
+        unsafe {
+            if AttachConsole(ATTACH_PARENT_PROCESS) != 0 {
+                use windows_sys::Win32::Storage::FileSystem::{
+                    CreateFileW, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
+                    FILE_SHARE_WRITE, OPEN_EXISTING,
+                };
+                use windows_sys::Win32::System::Console::{
+                    SetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+                };
+
+                let conout: Vec<u16> = "CONOUT$\0".encode_utf16().collect();
+                let conin: Vec<u16> = "CONIN$\0".encode_utf16().collect();
+
+                let handle_out = CreateFileW(
+                    conout.as_ptr(),
+                    FILE_GENERIC_READ | FILE_GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    std::ptr::null(),
+                    OPEN_EXISTING,
+                    0,
+                    std::ptr::null_mut(),
+                );
+                if handle_out != windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+                    SetStdHandle(STD_OUTPUT_HANDLE, handle_out);
+                    SetStdHandle(STD_ERROR_HANDLE, handle_out);
+                }
+
+                let handle_in = CreateFileW(
+                    conin.as_ptr(),
+                    FILE_GENERIC_READ | FILE_GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    std::ptr::null(),
+                    OPEN_EXISTING,
+                    0,
+                    std::ptr::null_mut(),
+                );
+                if handle_in != windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+                    SetStdHandle(STD_INPUT_HANDLE, handle_in);
+                }
+
+                SetConsoleOutputCP(65001);
+                SetConsoleCP(65001);
+                SetConsoleCtrlHandler(Some(console_ctrl_handler), 1);
+            }
+        }
     }
 
     // 2. Carrega configurações locais portáteis (config.toml)
@@ -325,11 +393,7 @@ fn main() {
         );
     }
 
-    let args: Vec<String> = env::args().collect();
-    let diagnostic_only = args.iter().any(|a| a == "--diagnostic");
-    let once_only = args.iter().any(|a| a == "--once");
-    let cli_mode = args.iter().any(|a| a == "--cli");
-
+    // Avalia o modo de execução baseado nos argumentos
     if diagnostic_only {
         print_diagnostic(&diagnostic);
         if let Some(ref db) = db_handle {
@@ -416,11 +480,17 @@ fn main() {
 
     // Por padrão: inicializa a interface gráfica nativa (eframe / egui)
     info!("Iniciando interface gráfica nativa Windows (eframe / egui)...");
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("RustNet Monitor")
+        .with_inner_size([1040.0, 700.0])
+        .with_min_inner_size([820.0, 520.0]);
+
+    if let Some(icon) = load_app_icon() {
+        viewport = viewport.with_icon(icon);
+    }
+
     let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("RustNet Monitor")
-            .with_inner_size([1040.0, 700.0])
-            .with_min_inner_size([820.0, 520.0]),
+        viewport,
         ..Default::default()
     };
 

@@ -35,3 +35,9 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - Registro visual de eventos de rede com identificação de desconexões, reconexões e alertas de degradação.
 - Painel de configurações com alternância de tema (Escuro / Claro), ajuste de intervalos de ping, thresholds de latência e gerenciamento dinâmico de hosts monitorados.
 - Arquitetura híbrida com suporte simultâneo a GUI nativa por padrão e modos de linha de comando (`--cli`, `--diagnostic`, `--once`).
+
+### Corrigido
+- Configuração do subsistema Windows (`#![windows_subsystem = "windows"]`) eliminando a janela de terminal/CMD em segundo plano ao abrir a aplicação.
+- Ícone nativo do Windows embutido diretamente na tabela de recursos PE (`.rsrc`) do binário via `winres`, garantindo exibição no Windows Explorer, área de trabalho e barra de tarefas.
+- Adição de ícone visual nativo na barra de título da janela GUI via `ViewportBuilder::with_icon`.
+- Reassociação e redirecionamento de streams de console padrão (`AttachConsole` e handles `CONOUT$`) quando executado em modo CLI/Diagnóstico.
