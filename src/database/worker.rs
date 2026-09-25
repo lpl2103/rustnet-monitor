@@ -9,8 +9,8 @@ use crate::database::connection::open_optimized_connection;
 use crate::database::migrations::run_migrations;
 use crate::database::models::{LatencySampleRecord, NetworkEventRecord};
 use crate::database::repository::{
-    cleanup_old_records, current_timestamp_iso, get_or_create_host, insert_latency_samples_batch,
-    insert_network_event,
+    cleanup_old_records, clear_all_samples, current_timestamp_iso, get_or_create_host,
+    insert_latency_samples_batch, insert_network_event,
 };
 
 pub enum DbCommand {
@@ -23,6 +23,7 @@ pub enum DbCommand {
         error_type: Option<String>,
     },
     RecordEvent(NetworkEventRecord),
+    ClearSamples,
     #[allow(dead_code)]
     Cleanup,
     Flush,
@@ -76,6 +77,10 @@ impl DatabaseHandle {
     #[allow(dead_code)]
     pub fn flush(&self) {
         let _ = self.sender.send(DbCommand::Flush);
+    }
+
+    pub fn clear_samples(&self) {
+        let _ = self.sender.send(DbCommand::ClearSamples);
     }
 
     pub fn stop(&self) {
@@ -192,6 +197,17 @@ fn run_worker_loop(db_path: impl AsRef<Path>, rx: Receiver<DbCommand>, retention
                 DbCommand::RecordEvent(event) => {
                     if let Err(e) = insert_network_event(&conn, &event) {
                         error!("Falha ao persistir evento de rede: {}", e);
+                    }
+                }
+                DbCommand::ClearSamples => {
+                    pending_samples.clear();
+                    match clear_all_samples(&conn) {
+                        Ok(count) => {
+                            info!("Database: {} amostras de latência excluídas com sucesso.", count);
+                        }
+                        Err(e) => {
+                            error!("Database: Falha ao excluir amostras: {}", e);
+                        }
                     }
                 }
                 DbCommand::Cleanup => {

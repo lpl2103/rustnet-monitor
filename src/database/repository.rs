@@ -243,6 +243,11 @@ pub fn cleanup_old_records(
     Ok((deleted_samples, deleted_events))
 }
 
+/// Exclui todas as amostras de latência registradas (limpeza / reset de métricas).
+pub fn clear_all_samples(conn: &Connection) -> Result<usize, rusqlite::Error> {
+    conn.execute("DELETE FROM latency_samples", [])
+}
+
 /// Recupera as amostras mais recentes para determinado host.
 #[allow(dead_code)]
 pub fn get_recent_samples_for_host(

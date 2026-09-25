@@ -2,7 +2,7 @@ use std::net::{Ipv4Addr, ToSocketAddrs};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::Duration;
 use tracing::{debug, info};
@@ -41,6 +41,12 @@ pub fn resolve_target(target_str: &str, dynamic_gateway: Option<Ipv4Addr>) -> Op
     }
 
     None
+}
+
+/// Comandos de controle para a thread do pinger.
+#[derive(Debug, Clone)]
+pub enum PingerCommand {
+    ResetStats,
 }
 
 /// Orquestrador de testes de conectividade periódicos em background.
@@ -119,16 +125,18 @@ impl PingerService {
     }
 
     /// Inicia a thread de monitoramento contínuo em background.
-    /// Retorna um `Receiver<PingUpdate>` que recebe atualizações a cada ciclo e um manipulador de parada.
+    /// Retorna um canal de dados, um canal de comandos, um sinal de parada e o manipulador da thread.
     #[allow(dead_code)]
     pub fn start_worker(
         mut self,
     ) -> (
         Receiver<PingUpdate>,
+        Sender<PingerCommand>,
         Arc<AtomicBool>,
         thread::JoinHandle<()>,
     ) {
         let (tx, rx) = channel::<PingUpdate>();
+        let (cmd_tx, cmd_rx) = channel::<PingerCommand>();
         let stop_signal = self.stop_signal.clone();
         let thread_stop = stop_signal.clone();
         let interval = Duration::from_secs(self.config.monitoring.interval_secs.max(1));
@@ -140,6 +148,18 @@ impl PingerService {
 
         let handle = thread::spawn(move || {
             while !thread_stop.load(Ordering::Relaxed) {
+                // Processa eventuais comandos pendentes antes de pingar
+                while let Ok(cmd) = cmd_rx.try_recv() {
+                    match cmd {
+                        PingerCommand::ResetStats => {
+                            info!("Pinger: reinicializando estatísticas acumuladas de todos os hosts...");
+                            for (_, stats) in self.hosts.iter_mut() {
+                                stats.reset();
+                            }
+                        }
+                    }
+                }
+
                 let updates = self.probe_all();
                 for update in updates {
                     if tx.send(update).is_err() {
@@ -148,11 +168,21 @@ impl PingerService {
                     }
                 }
 
-                // Espera pelo próximo intervalo com checagem de parada a cada 100ms
+                // Espera pelo próximo intervalo com checagem de parada e comandos a cada 100ms
                 let steps = (interval.as_millis() / 100).max(1);
                 for _ in 0..steps {
                     if thread_stop.load(Ordering::Relaxed) {
                         break;
+                    }
+                    while let Ok(cmd) = cmd_rx.try_recv() {
+                        match cmd {
+                            PingerCommand::ResetStats => {
+                                info!("Pinger: reinicializando estatísticas acumuladas de todos os hosts...");
+                                for (_, stats) in self.hosts.iter_mut() {
+                                    stats.reset();
+                                }
+                            }
+                        }
                     }
                     thread::sleep(Duration::from_millis(100));
                 }
@@ -160,6 +190,6 @@ impl PingerService {
             info!("Worker de monitoramento ICMP finalizado.");
         });
 
-        (rx, stop_signal, handle)
+        (rx, cmd_tx, stop_signal, handle)
     }
 }

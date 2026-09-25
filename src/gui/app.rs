@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
 
 use crate::config::AppConfig;
@@ -16,7 +16,7 @@ use crate::gui::events::{EventsState, render_events};
 use crate::gui::history::{HistoryState, render_history};
 use crate::gui::settings::{SettingsState, render_settings};
 use crate::network::icmp::PingStatus;
-use crate::network::pinger::{PingUpdate, PingerService};
+use crate::network::pinger::{PingUpdate, PingerCommand, PingerService};
 use crate::network::stats::HostStats;
 use crate::network::types::NetworkDiagnostic;
 
@@ -40,11 +40,13 @@ pub struct RustNetApp {
     start_time: Instant,
     last_update_time: Option<Instant>,
     rx_updates: Option<Receiver<PingUpdate>>,
+    tx_pinger_cmd: Option<Sender<PingerCommand>>,
     stop_signal: Option<Arc<AtomicBool>>,
     db_handle: Option<DatabaseHandle>,
     history_state: HistoryState,
     events_state: EventsState,
     settings_state: SettingsState,
+    logo_texture: Option<egui::TextureHandle>,
 }
 
 impl RustNetApp {
@@ -68,7 +70,7 @@ impl RustNetApp {
 
         let pinger = PingerService::new(config.clone(), detected_gateway);
         let initial_stats = pinger.current_stats();
-        let (rx, stop_signal, _worker) = pinger.start_worker();
+        let (rx, tx_cmd, stop_signal, _worker) = pinger.start_worker();
 
         let mut history_points = HashMap::new();
         let mut active_hosts_in_chart = HashMap::new();
@@ -88,11 +90,13 @@ impl RustNetApp {
             start_time: Instant::now(),
             last_update_time: None,
             rx_updates: Some(rx),
+            tx_pinger_cmd: Some(tx_cmd),
             stop_signal: Some(stop_signal),
             db_handle,
             history_state: HistoryState::default(),
             events_state: EventsState::default(),
             settings_state: SettingsState::default(),
+            logo_texture: None,
         }
     }
 }
@@ -175,13 +179,35 @@ impl eframe::App for RustNetApp {
             _ => {} // Mantém padrão do sistema
         }
 
+        // Carrega o logotipo da aplicação na GPU se ainda não estiver carregado
+        if self.logo_texture.is_none() {
+            let icon_bytes = include_bytes!("../../assets/app.png");
+            if let Ok(img) = image::load_from_memory(icon_bytes) {
+                let rgba = img.to_rgba8();
+                let (w, h) = rgba.dimensions();
+                let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                    [w as usize, h as usize],
+                    &rgba,
+                );
+                self.logo_texture = Some(ctx.load_texture(
+                    "app_logo_top",
+                    color_image,
+                    egui::TextureOptions::LINEAR,
+                ));
+            }
+        }
+
         // 3. Barra Superior com Navegação em Abas
         egui::Panel::top("top_navigation_bar").show(ui, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
+                if let Some(ref tex) = self.logo_texture {
+                    ui.image((tex.id(), egui::vec2(24.0, 24.0)));
+                }
+
                 ui.label(
-                    RichText::new("🦀 RustNet Monitor")
-                        .size(18.0)
+                    RichText::new("RustNet Monitor")
+                        .size(20.0)
                         .strong()
                         .color(Color32::from_rgb(230, 126, 34)),
                 );
@@ -269,6 +295,47 @@ impl eframe::App for RustNetApp {
                     &mut self.settings_state,
                     &self.config_path,
                 );
+
+                // Executa a reinicialização de métricas com base na confirmação do usuário
+                if self.settings_state.request_reset_metrics {
+                    self.settings_state.request_reset_metrics = false;
+
+                    // 1. Notifica o pinger worker em background para reiniciar acumuladores
+                    if let Some(ref tx_cmd) = self.tx_pinger_cmd {
+                        let _ = tx_cmd.send(PingerCommand::ResetStats);
+                    }
+
+                    // 2. Reseta estatísticas locais em memória
+                    for stat in &mut self.stats_list {
+                        stat.reset();
+                    }
+
+                    // 3. Limpa pontos das séries temporais dos gráficos
+                    for points in self.history_points.values_mut() {
+                        points.clear();
+                    }
+                    self.start_time = Instant::now();
+
+                    // 4. Se solicitado, limpa o histórico persistido no SQLite
+                    if self.settings_state.clear_db_history {
+                        if let Some(ref db) = self.db_handle {
+                            db.clear_samples();
+                            db.record_event(
+                                "Sistema".to_string(),
+                                "Manutenção".to_string(),
+                                "METRICS_RESET".to_string(),
+                                Some("Métricas e histórico de amostras zerados pelo usuário".to_string()),
+                            );
+                        }
+                        self.history_state.cached_samples.clear();
+                        self.history_state.last_query_time = None;
+                    }
+
+                    self.settings_state.status_message = Some((
+                        "Todas as métricas foram zeradas com sucesso!".to_string(),
+                        false,
+                    ));
+                }
             }
         });
 

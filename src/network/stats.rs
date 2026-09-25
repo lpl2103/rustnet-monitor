@@ -74,6 +74,26 @@ impl HostStats {
         }
     }
 
+    /// Reinicia todas as métricas acumuladas deste host para o estado inicial.
+    pub fn reset(&mut self) {
+        self.last_rtt_ms = None;
+        self.min_rtt_ms = None;
+        self.max_rtt_ms = None;
+        self.avg_rtt_ms = None;
+        self.jitter_ms = 0.0;
+        self.sent_packets = 0;
+        self.received_packets = 0;
+        self.lost_packets = 0;
+        self.packet_loss_pct = 0.0;
+        self.last_status = PingStatus::Error;
+        self.last_error = None;
+        self.consecutive_failures = 0;
+        self.last_success_time = None;
+        self.last_sample_time = None;
+        self.total_rtt_sum = 0.0;
+        self.previous_rtt = None;
+    }
+
     /// Classifica a qualidade com base nos limites definidos na configuração.
     pub fn quality(&self, thresholds: &LatencyThresholds) -> LatencyQuality {
         match self.last_status {

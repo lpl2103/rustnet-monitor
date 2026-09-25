@@ -9,6 +9,9 @@ pub struct SettingsState {
     #[allow(dead_code)]
     pub new_host_type: String,
     pub status_message: Option<(String, bool)>, // (mensagem, is_error)
+    pub show_reset_confirmation: bool,
+    pub clear_db_history: bool,
+    pub request_reset_metrics: bool,
 }
 
 impl Default for SettingsState {
@@ -18,6 +21,9 @@ impl Default for SettingsState {
             new_host_address: String::new(),
             new_host_type: "custom".to_string(),
             status_message: None,
+            show_reset_confirmation: false,
+            clear_db_history: true,
+            request_reset_metrics: false,
         }
     }
 }
@@ -215,6 +221,87 @@ pub fn render_settings(
                         }
                     }
                 });
+            });
+
+            ui.add_space(8.0);
+
+            // 6. Manutenção de Dados e Reinicialização de Métricas
+            ui.group(|ui| {
+                ui.heading(RichText::new("Manutenção e Métricas").strong());
+                ui.add_space(4.0);
+
+                if !state.show_reset_confirmation {
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button(
+                                RichText::new("🔄 Zerar Todas as Métricas")
+                                    .color(Color32::from_rgb(231, 76, 60))
+                                    .strong(),
+                            )
+                            .clicked()
+                        {
+                            state.show_reset_confirmation = true;
+                        }
+
+                        ui.label(
+                            RichText::new(
+                                "Reinicia contadores de latência, jitter, taxas de perda e dados em tempo real.",
+                            )
+                            .weak(),
+                        );
+                    });
+                } else {
+                    egui::Frame::group(ui.style())
+                        .fill(Color32::from_rgba_unmultiplied(231, 76, 60, 20))
+                        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(231, 76, 60)))
+                        .inner_margin(egui::Margin::same(12))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("⚠️").size(24.0));
+                                ui.vertical(|ui| {
+                                    ui.label(
+                                        RichText::new("Confirmar Reinicialização de Métricas")
+                                            .size(16.0)
+                                            .color(Color32::from_rgb(231, 76, 60))
+                                            .strong(),
+                                    );
+                                    ui.label(
+                                        "Deseja realmente zerar todos os contadores de latência, jitter e perda de pacotes?",
+                                    );
+                                    ui.label(
+                                        "Esta operação reiniciará o monitoramento em tempo real a partir do zero.",
+                                    );
+                                    ui.add_space(4.0);
+                                    ui.checkbox(
+                                        &mut state.clear_db_history,
+                                        "Também excluir histórico de amostras persistido no SQLite (rustnet.db)",
+                                    );
+                                });
+                            });
+
+                            ui.add_space(8.0);
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            RichText::new("⚠️ Sim, Zerar Métricas")
+                                                .color(Color32::WHITE)
+                                                .strong(),
+                                        )
+                                        .fill(Color32::from_rgb(192, 57, 43)),
+                                    )
+                                    .clicked()
+                                {
+                                    state.request_reset_metrics = true;
+                                    state.show_reset_confirmation = false;
+                                }
+
+                                if ui.button("Cancelar").clicked() {
+                                    state.show_reset_confirmation = false;
+                                }
+                            });
+                        });
+                }
             });
 
             ui.add_space(12.0);

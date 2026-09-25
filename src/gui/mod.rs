@@ -46,5 +46,59 @@ pub fn setup_fonts(ctx: &egui::Context) {
         info!("Segoe UI não encontrada no caminho padrão, utilizando fontes do sistema egui.");
     }
 
+    // Carrega Segoe UI Symbol / Emoji como fallback nativo para símbolos Unicode
+    let symbol_paths = [
+        "C:\\Windows\\Fonts\\seguisym.ttf",
+        "C:\\Windows\\Fonts\\seguiemj.ttf",
+    ];
+    for path in symbol_paths {
+        if let Ok(font_data) = fs::read(path) {
+            fonts.font_data.insert(
+                "SegoeSymbol".to_string(),
+                egui::FontData::from_owned(font_data).into(),
+            );
+            fonts
+                .families
+                .entry(egui::FontFamily::Proportional)
+                .or_default()
+                .push("SegoeSymbol".to_string());
+            break;
+        }
+    }
+
     ctx.set_fonts(fonts);
+
+    // Configura estilos e tamanhos de texto aumentados para excelente legibilidade
+    ctx.all_styles_mut(|style| {
+        style.text_styles = [
+            (
+                egui::TextStyle::Heading,
+                egui::FontId::new(22.0, egui::FontFamily::Proportional),
+            ),
+            (
+                egui::TextStyle::Name("Subheading".into()),
+                egui::FontId::new(18.0, egui::FontFamily::Proportional),
+            ),
+            (
+                egui::TextStyle::Body,
+                egui::FontId::new(15.5, egui::FontFamily::Proportional),
+            ),
+            (
+                egui::TextStyle::Button,
+                egui::FontId::new(15.0, egui::FontFamily::Proportional),
+            ),
+            (
+                egui::TextStyle::Small,
+                egui::FontId::new(13.0, egui::FontFamily::Proportional),
+            ),
+            (
+                egui::TextStyle::Monospace,
+                egui::FontId::new(14.0, egui::FontFamily::Monospace),
+            ),
+        ]
+        .into();
+
+        style.spacing.item_spacing = egui::vec2(10.0, 7.0);
+        style.spacing.button_padding = egui::vec2(10.0, 6.0);
+    });
 }

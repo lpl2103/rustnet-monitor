@@ -41,3 +41,8 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - Ícone nativo do Windows embutido diretamente na tabela de recursos PE (`.rsrc`) do binário via `winres`, garantindo exibição no Windows Explorer, área de trabalho e barra de tarefas.
 - Adição de ícone visual nativo na barra de título da janela GUI via `ViewportBuilder::with_icon`.
 - Reassociação e redirecionamento de streams de console padrão (`AttachConsole` e handles `CONOUT$`) quando executado em modo CLI/Diagnóstico.
+- Remoção do glifo quebrado (emoji de caranguejo exibido como retângulo vazio `□`) e substituição pela renderização com aceleração por GPU do logotipo oficial de alta resolução (`assets/app.png`), além de carregamento de `seguisym.ttf` como fonte de símbolos nativa de fallback.
+
+### Melhorado
+- Aumento geral do tamanho de fontes e tipografia em toda a aplicação (Heading: 22pt, Subheading: 18pt, Body: 15.5pt, Button: 15pt, Small: 13pt) com espaçamentos ampliados para máxima legibilidade e ergonomia visual.
+- Implementação de botão para zerar métricas na aba de Configurações, com caixa de confirmação de segurança, opção para expurgar amostras do SQLite (`rustnet.db`), reinicialização das curvas nos gráficos e reset do worker de monitoramento em tempo real.
