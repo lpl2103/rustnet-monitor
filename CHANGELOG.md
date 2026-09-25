@@ -27,3 +27,11 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - Ativação do modo WAL (`PRAGMA journal_mode = WAL`) e `PRAGMA synchronous = NORMAL` para alto desempenho de disco.
 - Database Worker assíncrono desacoplado via canal `mpsc::channel` com gravações agrupadas em transações atômicas (*batch writes*).
 - Política de retenção automática configurável (padrão 30 dias) para limpeza de amostras antigas em background.
+- Interface Gráfica nativa e moderna via `eframe` (egui) com renderizador OpenGL Glow acelerado por GPU.
+- Tipografia com integração nativa da fonte Segoe UI do Windows (`C:\Windows\Fonts\segoeui.ttf`) e suporte completo a acentuação UTF-8 em português.
+- Dashboard visual interativo com status da interface física ativa, métricas em tempo real por host (RTT, min/max/méd, jitter RFC 3550, perdas) e badges visuais de qualidade.
+- Visualização gráfica de séries temporais com `egui_plot`, suportando zoom, pan e alternância de séries por host.
+- Tela de histórico com filtros de período (1h, 6h, 24h, 7 dias, 30 dias, Tudo), resumo estatístico e tabela paginada com status de perda.
+- Registro visual de eventos de rede com identificação de desconexões, reconexões e alertas de degradação.
+- Painel de configurações com alternância de tema (Escuro / Claro), ajuste de intervalos de ping, thresholds de latência e gerenciamento dinâmico de hosts monitorados.
+- Arquitetura híbrida com suporte simultâneo a GUI nativa por padrão e modos de linha de comando (`--cli`, `--diagnostic`, `--once`).

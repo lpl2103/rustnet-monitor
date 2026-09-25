@@ -12,6 +12,8 @@ name = "rustnet-monitor"
 path = "src/main.rs"
 
 [dependencies]
+eframe = { version = "0.36.2", default-features = false, features = ["glow", "default_fonts"] }
+egui_plot = "0.37.0"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"

@@ -1,8 +1,10 @@
 mod config;
 mod database;
+mod gui;
 mod network;
 mod utils;
 
+use eframe::egui;
 use std::env;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
@@ -326,11 +328,10 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     let diagnostic_only = args.iter().any(|a| a == "--diagnostic");
     let once_only = args.iter().any(|a| a == "--once");
-
-    // Exibe o diagnóstico detalhado
-    print_diagnostic(&diagnostic);
+    let cli_mode = args.iter().any(|a| a == "--cli");
 
     if diagnostic_only {
+        print_diagnostic(&diagnostic);
         if let Some(ref db) = db_handle {
             db.stop();
         }
@@ -340,71 +341,107 @@ fn main() {
         return;
     }
 
-    // Extrai o IP do gateway detectado para monitoramento dinâmico
-    let detected_gateway = diagnostic
-        .default_route_ipv4
-        .as_ref()
-        .and_then(|r| Ipv4Addr::from_str(&r.next_hop).ok())
-        .or_else(|| {
-            diagnostic
-                .active_physical_interface
-                .as_ref()
-                .and_then(|iface| iface.gateway_addresses.first())
-                .and_then(|gw| Ipv4Addr::from_str(gw).ok())
-        });
+    if once_only || cli_mode {
+        print_diagnostic(&diagnostic);
 
-    let mut pinger = PingerService::new(config.clone(), detected_gateway);
+        // Extrai o IP do gateway detectado para monitoramento dinâmico
+        let detected_gateway = diagnostic
+            .default_route_ipv4
+            .as_ref()
+            .and_then(|r| Ipv4Addr::from_str(&r.next_hop).ok())
+            .or_else(|| {
+                diagnostic
+                    .active_physical_interface
+                    .as_ref()
+                    .and_then(|iface| iface.gateway_addresses.first())
+                    .and_then(|gw| Ipv4Addr::from_str(gw).ok())
+            });
 
-    if once_only {
-        println!("Executando teste único de conectividade ICMP e persistência no banco...");
-        let updates = pinger.probe_all();
-        persist_updates(&db_handle, &updates);
-        let stats = pinger.current_stats();
-        render_monitor_table(&diagnostic, &stats, &config, 1);
+        let mut pinger = PingerService::new(config.clone(), detected_gateway);
 
-        if let Some(ref db) = db_handle {
-            db.stop();
-        }
-        if let Some(thread) = db_thread {
-            let _ = thread.join();
-        }
-        return;
-    }
+        if once_only {
+            println!("Executando teste único de conectividade ICMP e persistência no banco...");
+            let updates = pinger.probe_all();
+            persist_updates(&db_handle, &updates);
+            let stats = pinger.current_stats();
+            render_monitor_table(&diagnostic, &stats, &config, 1);
 
-    println!(
-        "Iniciando monitoramento em tempo real (intervalo: {}s)...",
-        config.monitoring.interval_secs
-    );
-    let interval = Duration::from_secs(config.monitoring.interval_secs.max(1));
-    let mut cycle = 0;
-
-    while RUNNING.load(Ordering::Relaxed) {
-        cycle += 1;
-        let updates = pinger.probe_all();
-        persist_updates(&db_handle, &updates);
-
-        let stats = pinger.current_stats();
-        render_monitor_table(&diagnostic, &stats, &config, cycle);
-
-        // Espera pelo próximo ciclo com checagem de Ctrl+C a cada 100ms
-        let steps = (interval.as_millis() / 100).max(1);
-        for _ in 0..steps {
-            if !RUNNING.load(Ordering::Relaxed) {
-                break;
+            if let Some(ref db) = db_handle {
+                db.stop();
             }
-            thread::sleep(Duration::from_millis(100));
+            if let Some(thread) = db_thread {
+                let _ = thread.join();
+            }
+            return;
         }
+
+        println!(
+            "Iniciando monitoramento em tempo real (intervalo: {}s)...",
+            config.monitoring.interval_secs
+        );
+        let interval = Duration::from_secs(config.monitoring.interval_secs.max(1));
+        let mut cycle = 0;
+
+        while RUNNING.load(Ordering::Relaxed) {
+            cycle += 1;
+            let updates = pinger.probe_all();
+            persist_updates(&db_handle, &updates);
+
+            let stats = pinger.current_stats();
+            render_monitor_table(&diagnostic, &stats, &config, cycle);
+
+            // Espera pelo próximo ciclo com checagem de Ctrl+C a cada 100ms
+            let steps = (interval.as_millis() / 100).max(1);
+            for _ in 0..steps {
+                if !RUNNING.load(Ordering::Relaxed) {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
+
+        println!();
+        println!("Finalizando persistência de dados no SQLite...");
+        if let Some(ref db) = db_handle {
+            db.stop();
+        }
+        if let Some(thread) = db_thread {
+            let _ = thread.join();
+        }
+
+        println!("Monitoramento encerrado pelo usuário.");
+        info!("RustNet Monitor finalizado.");
+        return;
     }
 
-    println!();
-    println!("Finalizando persistência de dados no SQLite...");
-    if let Some(ref db) = db_handle {
-        db.stop();
-    }
+    // Por padrão: inicializa a interface gráfica nativa (eframe / egui)
+    info!("Iniciando interface gráfica nativa Windows (eframe / egui)...");
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_title("RustNet Monitor")
+            .with_inner_size([1040.0, 700.0])
+            .with_min_inner_size([820.0, 520.0]),
+        ..Default::default()
+    };
+
+    let config_clone = config.clone();
+    let config_path_buf = config_path.to_path_buf();
+
+    let _ = eframe::run_native(
+        "RustNet Monitor",
+        native_options,
+        Box::new(move |cc| {
+            gui::setup_fonts(&cc.egui_ctx);
+            Ok(Box::new(gui::RustNetApp::new(
+                config_clone,
+                config_path_buf,
+                diagnostic,
+                db_handle,
+            )))
+        }),
+    );
+
     if let Some(thread) = db_thread {
         let _ = thread.join();
     }
-
-    println!("Monitoramento encerrado pelo usuário.");
-    info!("RustNet Monitor finalizado.");
 }
