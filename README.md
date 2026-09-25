@@ -1,95 +1,225 @@
-# RustNet Monitor
+<p align="center">
+  <img src="assets/app.png" width="128" height="128" alt="RustNet Monitor Logo" />
+</p>
 
-Monitor de conectividade de rede nativo para Windows em Rust, projetado para baixíssimo consumo de recursos (CPU/RAM), executável portátil e monitoramento de conectividade em tempo real sem dependências externas.
+<h1 align="center">RustNet Monitor</h1>
 
-## Funcionalidades Principais
+<p align="center">
+  <strong>Monitor de conectividade de rede nativo, moderno e ultra-leve para Windows escrito 100% em Rust.</strong>
+</p>
 
-- **Interface Gráfica Moderna e Nativa (GUI)**: Janela desktop fluida com `eframe` (egui) acelerada por GPU (OpenGL Glow), tema escuro/claro e carregamento automático da tipografia Segoe UI nativa do Windows com suporte a acentuação em português.
-- **Detecção Nativa de Rede no Windows**: Consulta direta às APIs Win32 / IP Helper (`iphlpapi.dll`) sem subprocessos externos (`ipconfig`, `route`, etc.).
-- **Filtragem Inteligente de Adaptadores Virtuais**: Desconsidera e classifica automaticamente interfaces virtuais (VMware, VirtualBox, Hyper-V, Tailscale, Radmin VPN, Fortinet, WireGuard, Docker, WSL, etc.) usando flags de hardware NDIS (`HardwareInterface`, `ConnectorPresent`).
-- **Detecção Automática do Gateway Padrão**: Identifica o gateway padrão ativo via `GetIpForwardTable2` com cálculo combinado de métricas de rota e interface.
-- **Motor de Ping ICMP Nativo**: Pings assíncronos e paralelos usando a API Win32 ICMP (`IcmpCreateFile`, `IcmpSendEcho`, `IcmpCloseHandle`), sem requerer elevação de privilégios de administrador.
-- **Cálculo de Jitter RFC 3550 & Métricas**: Jitter estático ponderado ($D = |RTT_i - RTT_{i-1}|$, $J_i = J_{i-1} + \frac{|D| - J_{i-1}}{16}$), latência mínima/máxima/média, perda de pacotes (%) e classificação visual de qualidade.
-- **Gráficos em Tempo Real**: Curvas de latência interativas por host com `egui_plot` (zoom, pan, alternância de séries).
-- **Persistência Local de Alto Desempenho**: Banco de dados SQLite embutido compilado no próprio executável (`rusqlite` bundled, zero DLLs), com modo WAL (`Write-Ahead Logging`), transações assíncronas em lote via worker thread desacoplado e expurgo automático por retenção.
-- **Histórico & Eventos de Conectividade**: Histórico de latência com filtros (1h, 6h, 24h, 7d, 30d) e auditoria visual de eventos de rede (quedas, restabelecimentos, degradação).
-- **100% Portátil e Leve**: Executável único estático (~7 MB) na raiz do projeto (`RustNetMonitor.exe`), sem instalador e sem dependências de runtime (.NET ou C++ redistributable).
-- **Modos de Execução**: Abre a GUI interativa por padrão; suporta execução CLI para servidores ou diagnóstico via `--cli`, `--diagnostic` ou `--once`.
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
+  <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D6.svg?logo=windows" alt="Platform" />
+  <img src="https://img.shields.io/badge/Rust-2024%20Edition-DEA584.svg?logo=rust" alt="Rust 2024" />
+  <img src="https://img.shields.io/badge/GUI-eframe%20%2F%20egui-blueviolet.svg" alt="GUI: eframe/egui" />
+  <img src="https://img.shields.io/badge/Database-SQLite%20(WAL%20Bundled)-003B57.svg?logo=sqlite" alt="SQLite Bundled" />
+</p>
 
-## Estrutura do Projeto
+---
+
+## 📋 Visão Geral
+
+O **RustNet Monitor** é uma aplicação desktop nativa desenvolvida em **Rust** voltada para o monitoramento contínuo da estabilidade e qualidade da conexão de rede no Windows. Projetado sob princípios rigorosos de eficiência:
+
+* **Baixíssimo consumo**: CPU rotineiramente abaixo de 0.1% e uso mínimo de memória RAM.
+* **100% Portátil (*Portable*)**: Executável único estático (`RustNetMonitor.exe` ~7 MB), sem necessidade de instalação, instaladores MSI ou permissões de administrador.
+* **Zero dependências externas**: Motor SQLite embutido diretamente no código de máquina (*bundled*), sem exigência de .NET Runtime, bibliotecas redistribuíveis do Visual C++ ou DLLs avulsas.
+* **Chamadas nativas do Windows**: Todas as inspeções de adaptadores, tabelas de roteamento e envio de pacotes ICMP utilizam diretamente as APIs Win32 e IP Helper (`iphlpapi.dll`), sem gerar subprocessos externos (`ping.exe`, `ipconfig.exe`, `route.exe`, `powershell.exe`).
+
+---
+
+## ✨ Funcionalidades Principais
+
+### 🖥️ Interface Gráfica Moderna (GUI)
+- Desenvolvida com `eframe` (egui) acelerada por GPU (OpenGL Glow).
+- **Sem janela preta do CMD**: Configurada com `#![windows_subsystem = "windows"]`, iniciando diretamente em janela limpa ao clicar no executável.
+- **Ícone Nativo do Windows**: Ícone multi-resolução embutido na seção de recursos PE (`.rsrc`), exibido com fidelidade no Windows Explorer, barra de tarefas e título da janela.
+- **Tipografia Nativa Windows**: Integração com a fonte **Segoe UI** (`segoeui.ttf`) e fontes de símbolos (`seguisym.ttf`), com suporte integral à acentuação em português (UTF-8).
+- **Temas**: Alternância instantânea entre modo Escuro (*Dark*) e Claro (*Light*).
+
+### 🔍 Detecção Inteligente de Rede & Filtro de Adaptadores Virtuais
+- Consulta nativa de interfaces via `GetAdaptersAddresses` e `GetIfEntry2`.
+- **Discriminação de Adaptadores**: Avalia flags de hardware NDIS (`HardwareInterface == 1`, `ConnectorPresent == 1`) e padrões conhecidos de fornecedores para ignorar interfaces virtuais (VMware, VirtualBox, Hyper-V, Tailscale, Radmin VPN, Fortinet, WireGuard, Docker, WSL, etc.).
+- **Identificação do Gateway Padrão**: Consulta à tabela de rotas via `GetIpForwardTable2` para identificar o gateway ativo com menor métrica combinada (rota + interface).
+
+### ⚡ Motor ICMP & Estatísticas RFC 3550
+- Envio de requisições de eco ICMP assíncronas via `IcmpCreateFile` e `IcmpSendEcho` sem requerer privilégios de administrador.
+- Monitoramento simultâneo do Gateway Padrão dinâmico, servidores DNS globais (Google `8.8.8.8`, Cloudflare `1.1.1.1`) e hosts personalizados.
+- **Cálculo de Jitter RFC 3550**: Diferença ponderada entre amostras consecutivas de latência:
+  $$\Delta = |RTT_i - RTT_{i-1}|, \quad J_i = J_{i-1} + \frac{|\Delta| - J_{i-1}}{16}$$
+- Cálculo de RTT atual, mínimo, médio, máximo e taxa de perda de pacotes (%).
+- Classificação visual instantânea com limites configuráveis: **BOM** (Verde), **MÉDIO** (Amarelo), **ALTO** (Laranja) e **OFFLINE** (Vermelho).
+
+### 📈 Gráficos em Tempo Real & Histórico Persistente
+- **Gráficos Interativos**: Séries temporais em tempo real com `egui_plot`, suportando zoom pelo scroll do mouse, navegação por arrasto (*pan*) e seleção de séries por host.
+- **Persistência SQLite de Alto Desempenho**:
+  - Modo WAL (`PRAGMA journal_mode = WAL`) com leituras e gravações concorrentes sem bloqueio.
+  - Gravações assíncronas em lote (*batch*) gerenciadas por uma thread dedicada de banco de dados via canal `mpsc`.
+  - Expurgo automático com política de retenção configurável (ex: 30 dias).
+- **Filtros Históricos**: Consulta por períodos de 1 hora, 6 horas, 24 horas, 7 dias, 30 dias ou histórico completo.
+- **Registro de Eventos**: Log estruturado de quedas, reconexões e degradações da conexão.
+
+### 🔄 Manutenção & Zerar Métricas
+- Botão dedicado na aba **Configurações** para reinicializar todos os acumuladores de latência, jitter e perdas em tempo real.
+- Caixa de confirmação de segurança com opção de excluir também as amostras antigas do banco SQLite (`rustnet.db`).
+
+---
+
+## 🗂️ Estrutura do Projeto
 
 ```text
-src/
-├── main.rs                 # Ponto de entrada (GUI por padrão, suporte a flags CLI)
-├── config/                 # Gerenciamento de configurações (config.toml, serde)
-│   ├── mod.rs
-│   └── settings.rs
-├── database/               # Persistência SQLite local
-│   ├── mod.rs
-│   ├── connection.rs       # Conexão WAL, synchronous=NORMAL, busy_timeout
-│   ├── migrations.rs       # Tabelas hosts, latency_samples, network_events
-│   ├── repository.rs       # Operações relacionais (upsert, batch insert, queries)
-│   └── worker.rs           # Thread assíncrona desacoplada via mpsc::channel
-├── network/                # Camada nativa Windows de rede (IP Helper / NetIO / ICMP)
-│   ├── mod.rs
-│   ├── types.rs            # Structs de Interface, Gateway, Route, AdapterType
-│   ├── adapters.rs         # GetAdaptersAddresses (IPs, MAC, Status, DNS, Gateways)
-│   ├── routes.rs           # GetIpForwardTable2 (tabela de rotas e default route)
-│   ├── detector.rs         # Orquestrador de detecção e correlação da interface ativa
-│   ├── virtual_filter.rs   # Classificação e filtro de interfaces virtuais vs físicas
-│   ├── icmp.rs             # Win32 IcmpSendEcho nativo
-│   ├── stats.rs            # Jitter RFC 3550, packet loss, médias e limites
-│   └── pinger.rs           # Motor de ping periódico multithread
-├── gui/                    # Interface Gráfica eframe / egui
-│   ├── mod.rs              # Setup de fontes nativas (Segoe UI)
-│   ├── app.rs              # Loop principal eframe::App e abas de navegação
-│   ├── dashboard.rs        # Interface ativa e tabela de hosts em tempo real
-│   ├── charts.rs           # Gráficos de linhas em tempo real com egui_plot
-│   ├── history.rs          # Consulta e análise estatística do histórico SQLite
-│   ├── events.rs           # Registro de eventos de conexão/desconexão
-│   └── settings.rs         # Configuração de temas, intervalos e thresholds
-└── utils/                  # Utilitários gerais
-    ├── mod.rs
-    └── logging.rs          # Logging estruturado (console + logs/rustnet.log)
+rustnet-monitor/
+├── assets/                  # Ícones da aplicação (app.ico multi-resolução e app.png 256x256)
+├── src/
+│   ├── main.rs              # Ponto de entrada, subsistema PE e orquestrador híbrido
+│   ├── config/              # Leitura, validação e persistência do config.toml
+│   │   ├── mod.rs
+│   │   └── settings.rs
+│   ├── database/            # Camada de persistência local SQLite
+│   │   ├── mod.rs
+│   │   ├── connection.rs    # Conexão WAL, synchronous=NORMAL, busy_timeout
+│   │   ├── migrations.rs    # Esquema relacional (hosts, latency_samples, network_events)
+│   │   ├── models.rs        # Estruturas de dados do banco
+│   │   ├── repository.rs    # Queries, batch insert e exclusão de amostras
+│   │   └── worker.rs        # Thread assíncrona não-bloqueante
+│   ├── network/             # Camada nativa Windows de rede e ICMP
+│   │   ├── mod.rs
+│   │   ├── types.rs         # Estruturas de Adaptadores, Rotas e Diagnósticos
+│   │   ├── adapters.rs      # Win32 GetAdaptersAddresses e GetIfEntry2
+│   │   ├── routes.rs        # Win32 GetIpForwardTable2
+│   │   ├── detector.rs      # Correlação e identificação da conexão ativa
+│   │   ├── virtual_filter.rs# Filtragem multinível de interfaces virtuais
+│   │   ├── icmp.rs          # Motor Win32 IcmpSendEcho nativo
+│   │   ├── stats.rs         # Acumulador estatístico, Jitter RFC 3550 e qualidade
+│   │   └── pinger.rs        # Pinger multithread periódico com canal de controle
+│   ├── gui/                 # Interface Gráfica nativa (eframe / egui)
+│   │   ├── mod.rs           # Setup de tipografia (Segoe UI) e estilos
+│   │   ├── app.rs           # Loop principal da janela, abas e eventos
+│   │   ├── dashboard.rs     # Aba Dashboard (status da interface e tabela em tempo real)
+│   │   ├── charts.rs        # Aba Gráficos (curvas temporais egui_plot)
+│   │   ├── history.rs       # Aba Histórico (filtros de período e paginação)
+│   │   ├── events.rs        # Aba Eventos de rede
+│   │   └── settings.rs      # Aba Configurações e diálogo de zerar métricas
+│   └── utils/
+│       ├── mod.rs
+│       └── logging.rs       # Logging duplo (console + logs/rustnet.log)
+├── build.rs                 # Script de compilação de recursos PE do Windows (winres)
+├── build.ps1                # Script PowerShell de build release automatizado
+├── Cargo.toml               # Dependências e perfil de compilação otimizado
+├── CHANGELOG.md             # Histórico de versões (Keep a Changelog)
+└── LICENSE                  # Licença MIT
 ```
 
-## Como Compilar
+---
 
-Execute o script de build automatizado do PowerShell que compila em release otimizado e copia o executável diretamente para a raiz:
+## 🚀 Como Compilar e Executar
+
+### Pré-requisitos
+- **Windows 10** ou **Windows 11** (64-bit)
+- **Rust 1.80+** (toolchain `stable-x86_64-pc-windows-msvc`)
+
+### Compilação Automatizada (Recomendado)
+Execute o script PowerShell fornecido na raiz. Ele compila o projeto em perfil *release* otimizado com LTO (*Link-Time Optimization*), símbolos removidos (*strip*) e copia o executável final diretamente para a raiz:
 
 ```powershell
 .\build.ps1
 ```
 
-Ou manualmente via Cargo:
+O binário gerado estará disponível imediatamente em:
+```text
+.\RustNetMonitor.exe
+```
 
+### Compilação Manual via Cargo
 ```powershell
 cargo build --release
 ```
+O executável compilado será gerado em `target/release/rustnet-monitor.exe`.
 
-## Modos de Uso
+---
+
+## 💻 Modos de Uso
 
 ### 1. Interface Gráfica (Padrão)
-Basta dar duplo clique em `RustNetMonitor.exe` ou executar:
+Para abrir a interface gráfica, basta dar um **duplo clique** em `RustNetMonitor.exe` no Windows Explorer ou executá-lo no terminal sem parâmetros:
 ```powershell
 .\RustNetMonitor.exe
 ```
 
-### 2. Painel CLI no Terminal
+### 2. Painel Interativo no Terminal (CLI Mode)
+Para monitorar em servidores sem interface gráfica ou diretamente no terminal:
 ```powershell
 .\RustNetMonitor.exe --cli
 ```
 
-### 3. Diagnóstico de Interfaces e Rotas
+### 3. Diagnóstico Único de Rede
+Exibe no console os adaptadores físicos detectados, interfaces virtuais ignoradas e tabela de rotas:
 ```powershell
 .\RustNetMonitor.exe --diagnostic
 ```
 
-### 4. Ciclo Único de Teste (Script / CI)
+### 4. Ciclo Único de Teste (Scripting / CI)
+Executa um único ciclo de ping sobre todos os alvos, salva os resultados no SQLite e encerra:
 ```powershell
 .\RustNetMonitor.exe --once
 ```
 
-## Licença
+---
 
-Distribuído sob a licença MIT. Veja `LICENSE` para mais informações.
+## ⚙️ Arquivo de Configuração (`config.toml`)
+
+Caso não exista, um arquivo `config.toml` portátil será criado automaticamente na inicialização com valores padrão seguros:
+
+```toml
+[general]
+theme = "dark"              # "dark", "light" ou "system"
+language = "pt-BR"
+log_level = "info"
+minimize_to_tray = false
+start_with_windows = false
+
+[monitoring]
+interval_secs = 2           # Intervalo entre rodadas de ping (segundos)
+timeout_ms = 1000           # Tempo limite de resposta por ping (milissegundos)
+retry_count = 1
+
+[thresholds]
+green_max_ms = 40           # Latências abaixo deste valor são "BOM"
+yellow_max_ms = 120         # Entre green e yellow são "MÉDIO"; acima são "ALTO"
+
+[database]
+path = "rustnet.db"         # Caminho do banco de dados SQLite local
+retention_days = 30         # Dias de retenção de histórico (0 para ilimitado)
+
+[[hosts]]
+name = "Gateway Padrão"
+address = "auto"            # "auto" detecta dinamicamente o gateway físico ativo
+enabled = true
+
+[[hosts]]
+name = "Google DNS"
+address = "8.8.8.8"
+enabled = true
+
+[[hosts]]
+name = "Cloudflare DNS"
+address = "1.1.1.1"
+enabled = true
+```
+
+---
+
+## 📄 Licença
+
+Este projeto é distribuído sob os termos da licença **MIT**.
+
+A licença MIT é uma licença de software livre permissiva que permite a qualquer pessoa utilizar, copiar, modificar, mesclar, publicar, distribuir, sublicenciar e/ou vender cópias do software, sujeito apenas à inclusão do aviso de direitos autorais original.
+
+Consulte o arquivo [`LICENSE`](LICENSE) para obter o texto integral da licença.
+
+---
+
+<p align="center">
+  Desenvolvido por <strong>Leandro Pinheiro</strong> (2026)
+</p>
