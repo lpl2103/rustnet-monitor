@@ -203,7 +203,10 @@ fn run_worker_loop(db_path: impl AsRef<Path>, rx: Receiver<DbCommand>, retention
                     pending_samples.clear();
                     match clear_all_samples(&conn) {
                         Ok(count) => {
-                            info!("Database: {} amostras de latência excluídas com sucesso.", count);
+                            info!(
+                                "Database: {} amostras de latência excluídas com sucesso.",
+                                count
+                            );
                         }
                         Err(e) => {
                             error!("Database: Falha ao excluir amostras: {}", e);

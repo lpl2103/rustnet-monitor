@@ -35,7 +35,7 @@ O **RustNet Monitor** é uma aplicação desktop nativa desenvolvida em **Rust**
 - Desenvolvida com `eframe` (egui) acelerada por GPU (OpenGL Glow).
 - **Sem janela preta do CMD**: Configurada com `#![windows_subsystem = "windows"]`, iniciando diretamente em janela limpa ao clicar no executável.
 - **Ícone Nativo do Windows**: Ícone multi-resolução embutido na seção de recursos PE (`.rsrc`), exibido com fidelidade no Windows Explorer, barra de tarefas e título da janela.
-- **Tipografia Nativa Windows**: Integração com a fonte **Segoe UI** (`segoeui.ttf`) e fontes de símbolos (`seguisym.ttf`), com suporte integral à acentuação em português (UTF-8).
+- **Victor Mono Nerd Font Embutida**: Fonte profissional de alta fidelidade embutida diretamente no executável via compressão zlib (`assets/victor_mono.deflate`), com suporte nativo a glifos, ícones Nerd Fonts e caracteres especiais sem depender de fontes instaladas no sistema operacional.
 - **Temas**: Alternância instantânea entre modo Escuro (*Dark*) e Claro (*Light*).
 
 ### 🔍 Detecção Inteligente de Rede & Filtro de Adaptadores Virtuais
@@ -63,6 +63,12 @@ O **RustNet Monitor** é uma aplicação desktop nativa desenvolvida em **Rust**
 ### 🔄 Manutenção & Zerar Métricas
 - Botão dedicado na aba **Configurações** para reinicializar todos os acumuladores de latência, jitter e perdas em tempo real.
 - Caixa de confirmação de segurança com opção de excluir também as amostras antigas do banco SQLite (`rustnet.db`).
+
+### 🚀 Atualização Automática Integrada (Hot Reload)
+- O aplicativo verifica em background novas versões publicadas no **GitHub Releases** (`lpl2103/rustnet-monitor`).
+- Download em streaming com validação do cabeçalho de executável PE (`MZ`).
+- Substituição a quente em tempo de execução (`RustNetMonitor.exe.new` -> `RustNetMonitor.exe`) com reinicialização automática e limpeza do backup anterior (`--cleanup-old`).
+- Interface gráfica com barra de progresso em tempo real e notas da versão.
 
 ---
 

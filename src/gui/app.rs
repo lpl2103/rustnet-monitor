@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::config::AppConfig;
@@ -19,6 +19,7 @@ use crate::network::icmp::PingStatus;
 use crate::network::pinger::{PingUpdate, PingerCommand, PingerService};
 use crate::network::stats::HostStats;
 use crate::network::types::NetworkDiagnostic;
+use crate::updater::{RemoteVersionInfo, UpdateStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveTab {
@@ -47,6 +48,8 @@ pub struct RustNetApp {
     events_state: EventsState,
     settings_state: SettingsState,
     logo_texture: Option<egui::TextureHandle>,
+    available_update: Arc<Mutex<Option<RemoteVersionInfo>>>,
+    update_status: Arc<Mutex<UpdateStatus>>,
 }
 
 impl RustNetApp {
@@ -79,6 +82,30 @@ impl RustNetApp {
             active_hosts_in_chart.insert(stat.name.clone(), true);
         }
 
+        let available_update = Arc::new(Mutex::new(None));
+        let update_status = Arc::new(Mutex::new(UpdateStatus::Idle));
+
+        // Inicia verificação assíncrona de atualização no GitHub em background
+        let update_info_clone = available_update.clone();
+        let update_status_clone = update_status.clone();
+        std::thread::spawn(move || {
+            if let Ok(mut st) = update_status_clone.lock() {
+                *st = UpdateStatus::Checking;
+            }
+            if let Some(info) = crate::updater::check_for_updates() {
+                if let Ok(mut u) = update_info_clone.lock() {
+                    *u = Some(info);
+                }
+                if let Ok(mut st) = update_status_clone.lock() {
+                    *st = UpdateStatus::Idle;
+                }
+            } else {
+                if let Ok(mut st) = update_status_clone.lock() {
+                    *st = UpdateStatus::UpToDate;
+                }
+            }
+        });
+
         Self {
             config,
             config_path,
@@ -97,6 +124,8 @@ impl RustNetApp {
             events_state: EventsState::default(),
             settings_state: SettingsState::default(),
             logo_texture: None,
+            available_update,
+            update_status,
         }
     }
 }
@@ -185,10 +214,8 @@ impl eframe::App for RustNetApp {
             if let Ok(img) = image::load_from_memory(icon_bytes) {
                 let rgba = img.to_rgba8();
                 let (w, h) = rgba.dimensions();
-                let color_image = egui::ColorImage::from_rgba_unmultiplied(
-                    [w as usize, h as usize],
-                    &rgba,
-                );
+                let color_image =
+                    egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
                 self.logo_texture = Some(ctx.load_texture(
                     "app_logo_top",
                     color_image,
@@ -232,6 +259,22 @@ impl eframe::App for RustNetApp {
                     }
                 }
 
+                // Notificação de atualização disponível na barra superior
+                let has_update = self.available_update.lock().ok().and_then(|g| g.clone());
+                if let Some(ref info) = has_update {
+                    ui.add_space(8.0);
+                    if ui
+                        .button(
+                            RichText::new(format!("✨ v{} Disponível!", info.version))
+                                .color(Color32::from_rgb(46, 204, 113))
+                                .strong(),
+                        )
+                        .clicked()
+                    {
+                        self.active_tab = ActiveTab::Settings;
+                    }
+                }
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if let Some(last) = self.last_update_time {
                         let ago = last.elapsed().as_secs();
@@ -262,7 +305,10 @@ impl eframe::App for RustNetApp {
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new("RustNet Monitor v0.1.0").weak());
+                    ui.label(
+                        RichText::new(format!("RustNet Monitor v{}", env!("CARGO_PKG_VERSION")))
+                            .weak(),
+                    );
                 });
             });
         });
@@ -294,6 +340,8 @@ impl eframe::App for RustNetApp {
                     &mut self.config,
                     &mut self.settings_state,
                     &self.config_path,
+                    &self.available_update,
+                    &self.update_status,
                 );
 
                 // Executa a reinicialização de métricas com base na confirmação do usuário
@@ -324,7 +372,10 @@ impl eframe::App for RustNetApp {
                                 "Sistema".to_string(),
                                 "Manutenção".to_string(),
                                 "METRICS_RESET".to_string(),
-                                Some("Métricas e histórico de amostras zerados pelo usuário".to_string()),
+                                Some(
+                                    "Métricas e histórico de amostras zerados pelo usuário"
+                                        .to_string(),
+                                ),
                             );
                         }
                         self.history_state.cached_samples.clear();

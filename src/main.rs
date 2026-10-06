@@ -4,6 +4,7 @@ mod config;
 mod database;
 mod gui;
 mod network;
+mod updater;
 mod utils;
 
 use eframe::egui;
@@ -16,7 +17,7 @@ use std::thread;
 use std::time::Duration;
 use tracing::{error, info};
 use windows_sys::Win32::System::Console::{
-    AttachConsole, ATTACH_PARENT_PROCESS, SetConsoleCP, SetConsoleCtrlHandler, SetConsoleOutputCP,
+    ATTACH_PARENT_PROCESS, AttachConsole, SetConsoleCP, SetConsoleCtrlHandler, SetConsoleOutputCP,
 };
 
 use crate::config::AppConfig;
@@ -275,14 +276,15 @@ fn load_app_icon() -> Option<egui::IconData> {
 }
 
 fn main() {
+    // 0. Limpa resquícios de atualizações anteriores (.exe.old)
+    crate::updater::clean_old_update_files();
+
     let args: Vec<String> = env::args().collect();
     let diagnostic_only = args.iter().any(|a| a == "--diagnostic" || a == "-d");
     let once_only = args.iter().any(|a| a == "--once");
     let cli_mode = args.iter().any(|a| a == "--cli" || a == "-c");
-    let is_cli = diagnostic_only
-        || once_only
-        || cli_mode
-        || args.iter().any(|a| a == "--help" || a == "-h");
+    let is_cli =
+        diagnostic_only || once_only || cli_mode || args.iter().any(|a| a == "--help" || a == "-h");
 
     // 1. Se executado via linha de comando (CLI/Diagnóstico), anexa ao console existente
     if is_cli {
@@ -293,7 +295,7 @@ fn main() {
                     FILE_SHARE_WRITE, OPEN_EXISTING,
                 };
                 use windows_sys::Win32::System::Console::{
-                    SetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+                    STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetStdHandle,
                 };
 
                 let conout: Vec<u16> = "CONOUT$\0".encode_utf16().collect();

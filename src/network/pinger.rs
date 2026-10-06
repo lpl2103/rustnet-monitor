@@ -152,7 +152,9 @@ impl PingerService {
                 while let Ok(cmd) = cmd_rx.try_recv() {
                     match cmd {
                         PingerCommand::ResetStats => {
-                            info!("Pinger: reinicializando estatísticas acumuladas de todos os hosts...");
+                            info!(
+                                "Pinger: reinicializando estatísticas acumuladas de todos os hosts..."
+                            );
                             for (_, stats) in self.hosts.iter_mut() {
                                 stats.reset();
                             }
@@ -177,7 +179,9 @@ impl PingerService {
                     while let Ok(cmd) = cmd_rx.try_recv() {
                         match cmd {
                             PingerCommand::ResetStats => {
-                                info!("Pinger: reinicializando estatísticas acumuladas de todos os hosts...");
+                                info!(
+                                    "Pinger: reinicializando estatísticas acumuladas de todos os hosts..."
+                                );
                                 for (_, stats) in self.hosts.iter_mut() {
                                     stats.reset();
                                 }

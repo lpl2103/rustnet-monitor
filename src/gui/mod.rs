@@ -11,58 +11,61 @@ use tracing::info;
 
 pub use app::RustNetApp;
 
-/// Configura as fontes padrão do aplicativo com prioridade para Segoe UI nativa do Windows.
+/// Configura as fontes padrão do aplicativo com Victor Mono Nerd Font embutida.
 pub fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
 
-    // Caminhos padrão da Segoe UI no Windows 10 e Windows 11
-    let segoe_paths = [
-        "C:\\Windows\\Fonts\\segoeui.ttf",
-        "C:\\Windows\\Fonts\\SegoeUI.ttf",
-    ];
-
-    let mut loaded = false;
-    for path in segoe_paths {
-        if let Ok(font_data) = fs::read(path) {
+    // 1. Carrega e descompacta a Victor Mono Nerd Font embutida no binário via zlib
+    let compressed_font = include_bytes!("../../assets/victor_mono.deflate");
+    match miniz_oxide::inflate::decompress_to_vec_zlib(compressed_font) {
+        Ok(decompressed_ttf) => {
             fonts.font_data.insert(
-                "SegoeUI".to_string(),
-                egui::FontData::from_owned(font_data).into(),
+                "VictorMonoNF".to_string(),
+                egui::FontData::from_owned(decompressed_ttf).into(),
             );
 
-            // Define Segoe UI como a primeira prioridade para Proportional
+            // Define Victor Mono Nerd Font como primeira prioridade para Proportional e Monospace
             fonts
                 .families
                 .entry(egui::FontFamily::Proportional)
                 .or_default()
-                .insert(0, "SegoeUI".to_string());
+                .insert(0, "VictorMonoNF".to_string());
 
-            info!("Fonte nativa do Windows carregada com sucesso: {}", path);
-            loaded = true;
-            break;
+            fonts
+                .families
+                .entry(egui::FontFamily::Monospace)
+                .or_default()
+                .insert(0, "VictorMonoNF".to_string());
+
+            info!("Victor Mono Nerd Font embutida carregada com sucesso.");
+        }
+        Err(e) => {
+            tracing::error!("Falha ao descompactar Victor Mono Nerd Font: {:?}", e);
         }
     }
 
-    if !loaded {
-        info!("Segoe UI não encontrada no caminho padrão, utilizando fontes do sistema egui.");
-    }
-
-    // Carrega Segoe UI Symbol / Emoji como fallback nativo para símbolos Unicode
-    let symbol_paths = [
+    // 2. Carrega Segoe UI / Segoe Symbol do Windows como fallback secundário para emojis e símbolos
+    let fallback_paths = [
+        "C:\\Windows\\Fonts\\segoeui.ttf",
         "C:\\Windows\\Fonts\\seguisym.ttf",
         "C:\\Windows\\Fonts\\seguiemj.ttf",
     ];
-    for path in symbol_paths {
+    for path in fallback_paths {
         if let Ok(font_data) = fs::read(path) {
+            let font_name = if path.contains("segoeui") {
+                "SegoeUI"
+            } else {
+                "SegoeSymbol"
+            };
             fonts.font_data.insert(
-                "SegoeSymbol".to_string(),
+                font_name.to_string(),
                 egui::FontData::from_owned(font_data).into(),
             );
             fonts
                 .families
                 .entry(egui::FontFamily::Proportional)
                 .or_default()
-                .push("SegoeSymbol".to_string());
-            break;
+                .push(font_name.to_string());
         }
     }
 

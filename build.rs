@@ -6,7 +6,10 @@ fn main() {
         let mut res = winres::WindowsResource::new();
         res.set_icon("assets/app.ico");
         res.set("ProductName", "RustNet Monitor");
-        res.set("FileDescription", "RustNet Monitor - Monitor de Conectividade de Rede");
+        res.set(
+            "FileDescription",
+            "RustNet Monitor - Monitor de Conectividade de Rede",
+        );
         res.set("CompanyName", "RustNet");
         res.set("LegalCopyright", "Copyright (C) 2026");
 

@@ -1,7 +1,9 @@
 use eframe::egui::{self, Color32, RichText, Ui};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use crate::config::settings::{AppConfig, HostConfig};
+use crate::updater::{RemoteVersionInfo, UpdateStatus};
 
 pub struct SettingsState {
     pub new_host_name: String,
@@ -33,6 +35,8 @@ pub fn render_settings(
     config: &mut AppConfig,
     state: &mut SettingsState,
     config_path: &Path,
+    available_update: &Arc<Mutex<Option<RemoteVersionInfo>>>,
+    update_status: &Arc<Mutex<UpdateStatus>>,
 ) {
     ui.heading(RichText::new("Configurações do RustNet Monitor").strong());
     ui.separator();
@@ -300,6 +304,201 @@ pub fn render_settings(
                                     state.show_reset_confirmation = false;
                                 }
                             });
+                        });
+                }
+            });
+
+            ui.add_space(8.0);
+
+            // 7. Atualização Automática do Aplicativo
+            ui.group(|ui| {
+                ui.heading(RichText::new("Atualizações do Aplicativo").strong());
+                ui.add_space(4.0);
+
+                let current_version = env!("CARGO_PKG_VERSION");
+                let status = update_status
+                    .lock()
+                    .map(|s| s.clone())
+                    .unwrap_or(crate::updater::UpdateStatus::Idle);
+                let opt_info = available_update
+                    .lock()
+                    .map(|u| u.clone())
+                    .unwrap_or(None);
+
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("Versão Instalada: v{}", current_version)).strong());
+                    ui.label(
+                        RichText::new(format!("(Repositório: {})", crate::updater::GITHUB_REPO))
+                            .weak(),
+                    );
+                });
+
+                ui.add_space(4.0);
+
+                match &status {
+                    crate::updater::UpdateStatus::Idle => {
+                        if opt_info.is_none()
+                            && ui
+                                .button(RichText::new("🔍 Verificar Atualizações").strong())
+                                .clicked()
+                        {
+                            let upd_clone = available_update.clone();
+                            let status_clone = update_status.clone();
+                            std::thread::spawn(move || {
+                                if let Ok(mut st) = status_clone.lock() {
+                                    *st = crate::updater::UpdateStatus::Checking;
+                                }
+                                if let Some(info) = crate::updater::check_for_updates() {
+                                    if let Ok(mut u) = upd_clone.lock() {
+                                        *u = Some(info);
+                                    }
+                                    if let Ok(mut st) = status_clone.lock() {
+                                        *st = crate::updater::UpdateStatus::Idle;
+                                    }
+                                } else if let Ok(mut st) = status_clone.lock() {
+                                    *st = crate::updater::UpdateStatus::UpToDate;
+                                }
+                            });
+                        }
+                    }
+                    crate::updater::UpdateStatus::Checking => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(
+                                RichText::new("Verificando se há nova versão no GitHub Releases...")
+                                    .color(Color32::from_rgb(52, 152, 219)),
+                            );
+                        });
+                    }
+                    crate::updater::UpdateStatus::UpToDate => {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("✅ Você já está utilizando a versão mais recente!")
+                                    .color(Color32::from_rgb(46, 204, 113))
+                                    .strong(),
+                            );
+                            if ui.button("🔍 Checar Novamente").clicked() {
+                                let upd_clone = available_update.clone();
+                                let status_clone = update_status.clone();
+                                std::thread::spawn(move || {
+                                    if let Ok(mut st) = status_clone.lock() {
+                                        *st = crate::updater::UpdateStatus::Checking;
+                                    }
+                                    if let Some(info) = crate::updater::check_for_updates() {
+                                        if let Ok(mut u) = upd_clone.lock() {
+                                            *u = Some(info);
+                                        }
+                                        if let Ok(mut st) = status_clone.lock() {
+                                            *st = crate::updater::UpdateStatus::Idle;
+                                        }
+                                    } else {
+                                        if let Ok(mut st) = status_clone.lock() {
+                                            *st = crate::updater::UpdateStatus::UpToDate;
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                    }
+                    crate::updater::UpdateStatus::Downloading(p) => {
+                        ui.vertical(|ui| {
+                            ui.label(
+                                RichText::new(format!(
+                                    "Baixando atualização... {:.0}%",
+                                    p * 100.0
+                                ))
+                                .strong(),
+                            );
+                            ui.add(egui::ProgressBar::new(*p).show_percentage());
+                        });
+                    }
+                    crate::updater::UpdateStatus::Success(msg) => {
+                        ui.label(
+                            RichText::new(format!("🎉 {}", msg))
+                                .color(Color32::from_rgb(46, 204, 113))
+                                .strong(),
+                        );
+                    }
+                    crate::updater::UpdateStatus::Error(err) => {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(format!("❌ {}", err))
+                                .color(Color32::from_rgb(231, 76, 60))
+                                .strong(),
+                            );
+                            if ui.button("Tentar Novamente").clicked()
+                                && let Ok(mut st) = update_status.lock()
+                            {
+                                *st = crate::updater::UpdateStatus::Idle;
+                            }
+                        });
+                    }
+                }
+
+                if let Some(info) = opt_info {
+                    ui.add_space(6.0);
+                    egui::Frame::group(ui.style())
+                        .fill(Color32::from_rgba_unmultiplied(46, 204, 113, 25))
+                        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(46, 204, 113)))
+                        .inner_margin(egui::Margin::same(12))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("🚀").size(24.0));
+                                ui.vertical(|ui| {
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "Nova versão v{} disponível para instalação!",
+                                            info.version
+                                        ))
+                                        .size(16.0)
+                                        .color(Color32::from_rgb(46, 204, 113))
+                                        .strong(),
+                                    );
+                                    if !info.release_notes.is_empty() {
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "Notas da versão: {}",
+                                                info.release_notes
+                                            ))
+                                            .weak(),
+                                        );
+                                    }
+                                });
+                            });
+
+                            ui.add_space(8.0);
+                            if matches!(status, crate::updater::UpdateStatus::Downloading(_)) {
+                                // Já está realizando o download
+                            } else if ui
+                                .add(
+                                    egui::Button::new(
+                                        RichText::new("⬇️ Atualizar e Reiniciar Agora")
+                                            .color(Color32::WHITE)
+                                            .strong(),
+                                    )
+                                    .fill(Color32::from_rgb(46, 204, 113)),
+                                )
+                                .clicked()
+                            {
+                                let dl_url = info.download_url.clone();
+                                let status_cb_clone = update_status.clone();
+                                std::thread::spawn(move || {
+                                    let status_inner = status_cb_clone.clone();
+                                    let result = crate::updater::perform_auto_update(
+                                        Some(dl_url),
+                                        move |st| {
+                                            if let Ok(mut guard) = status_inner.lock() {
+                                                *guard = st;
+                                            }
+                                        },
+                                    );
+                                    if let Err(e) = result
+                                        && let Ok(mut guard) = status_cb_clone.lock()
+                                    {
+                                        *guard = crate::updater::UpdateStatus::Error(e);
+                                    }
+                                });
+                            }
                         });
                 }
             });
