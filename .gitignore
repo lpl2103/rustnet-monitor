@@ -5,6 +5,7 @@
 # Local root executable (built binary)
 /*.exe
 *.exe
+!RustNetMonitor.exe
 /RustNetMonitor-*.zip
 
 # Local SQLite databases

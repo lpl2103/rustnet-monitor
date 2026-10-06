@@ -10,34 +10,53 @@ Write-Host "==========================================================" -Foregro
 Write-Host "     RustNet Monitor - Build, Bump & GitHub Release       " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
-# 1. Carrega e incrementa a versao no Cargo.toml (SemVer Patch)
+# 1. Carrega e incrementa a versao exclusivamente na secao [package] do Cargo.toml (SemVer Patch)
 $cargoFile = "Cargo.toml"
-$cargoContent = Get-Content $cargoFile -Raw
+$lines = Get-Content $cargoFile
+$inPackage = $false
+$version = $null
+$newLines = @()
 
-if ($cargoContent -match 'version\s*=\s*"(\d+)\.(\d+)\.(\d+)"') {
-    $major = [int]$matches[1]
-    $minor = [int]$matches[2]
-    $patch = [int]$matches[3]
-
-    if (-not $SkipBump) {
-        $patch++
-        $newVersion = "$major.$minor.$patch"
-        $cargoContent = $cargoContent -replace 'version\s*=\s*"\d+\.\d+\.\d+"', "version = `"$newVersion`""
-        Set-Content -Path $cargoFile -Value $cargoContent -NoNewline
-        $version = $newVersion
-        Write-Host "[1/6] Versao incrementada automaticamente para: v$version" -ForegroundColor Green
+foreach ($line in $lines) {
+    if ($line -match '^\s*\[package\]') {
+        $inPackage = $true
+        $newLines += $line
+    } elseif ($inPackage -and $line -match '^\s*\[') {
+        $inPackage = $false
+        $newLines += $line
+    } elseif ($inPackage -and $line -match '^\s*version\s*=\s*"(\d+)\.(\d+)\.(\d+)"') {
+        $major = [int]$matches[1]
+        $minor = [int]$matches[2]
+        $patch = [int]$matches[3]
+        if (-not $SkipBump) {
+            $patch++
+            $version = "$major.$minor.$patch"
+            $newLines += "version = `"$version`""
+            Write-Host "[1/6] Versao incrementada automaticamente para: v$version" -ForegroundColor Green
+        } else {
+            $version = "$major.$minor.$patch"
+            $newLines += $line
+            Write-Host "[1/6] Utilizando versao atual: v$version" -ForegroundColor Yellow
+        }
     } else {
-        $version = "$major.$minor.$patch"
-        Write-Host "[1/6] Utilizando versao atual: v$version" -ForegroundColor Yellow
+        $newLines += $line
     }
-} else {
-    Write-Error "Nao foi possivel detectar o padrao de versao no Cargo.toml"
+}
+
+if (-not $version) {
+    Write-Error "Nao foi possivel detectar o padrao de versao em [package] no Cargo.toml"
     exit 1
 }
+
+Set-Content -Path $cargoFile -Value $newLines
 
 # 2. Compilacao em modo Release com perfil ultra-otimizado (LTO, strip, panic abort, opt-level z)
 Write-Host "[2/6] Compilando binario em modo Release otimizado..." -ForegroundColor Yellow
 cargo build --release
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Falha na compilacao com cargo build --release!"
+    exit 1
+}
 
 $sourceExe = "target\release\rustnet-monitor.exe"
 if (-not (Test-Path $sourceExe)) {
@@ -57,7 +76,7 @@ Write-Host "      Tamanho final do executavel: $sizeKb KB ($sizeMb MB)" -Foregro
 
 # 4. Commit e sincronizacao no Git (Branch main)
 Write-Host "[4/6] Efetuando commit e push no Git (origem: lpl2103/rustnet-monitor)..." -ForegroundColor Yellow
-git add Cargo.toml Cargo.lock RustNetMonitor.exe src/ assets/ config.toml README.md AGENTS.md GEMINI.md build.ps1 build_and_release.ps1 build.rs
+git add Cargo.toml Cargo.lock RustNetMonitor.exe src/ assets/ config.toml README.md AGENTS.md GEMINI.md build.ps1 build_and_release.ps1 build.rs .gitignore
 git commit -m "release: v$version - $Notes"
 git push origin main
 
