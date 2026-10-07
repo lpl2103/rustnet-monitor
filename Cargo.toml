@@ -1,6 +1,6 @@
 [package]
 name = "rustnet-monitor"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 authors = ["Leandro Pinheiro <leandro2103@gmail.com>"]
 description = "Monitor de conectividade de rede nativo para Windows em Rust"

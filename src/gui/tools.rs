@@ -200,6 +200,14 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
                 state.mtr_running.store(false, Ordering::Relaxed);
             }
 
+            if ui
+                .button(RichText::new("🔄 Limpar Amostras").strong())
+                .clicked()
+                && let Ok(mut h) = state.mtr_hops.lock()
+            {
+                h.clear();
+            }
+
             if is_running {
                 ui.spinner();
                 ui.label(
@@ -222,6 +230,39 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
     if hops.is_empty() {
         ui.label(RichText::new("Clique em 'Iniciar Rastreamento MTR' para mapear a rota.").weak());
     } else {
+        // Resumo de Pacotes Perdidos no Destino
+        if let Some(target_hop) = hops.last() {
+            let dest_ip = target_hop
+                .ip
+                .map(|i| i.to_string())
+                .unwrap_or_else(|| "* * *".to_string());
+            let dest_lost = target_hop.lost();
+            let dest_loss_pct = target_hop.loss_pct;
+            let dest_color = if dest_loss_pct == 0.0 {
+                Color32::from_rgb(46, 204, 113)
+            } else if dest_loss_pct < 5.0 {
+                Color32::from_rgb(241, 196, 15)
+            } else {
+                Color32::from_rgb(231, 76, 60)
+            };
+
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(format!("Saltos Detectados: {}", hops.len())).strong());
+                ui.separator();
+                ui.label(RichText::new(format!("Destino Final: {}", dest_ip)).strong());
+                ui.separator();
+                ui.label(
+                    RichText::new(format!(
+                        "Pacotes Perdidos no Destino: {} de {} ({:.1}%)",
+                        dest_lost, target_hop.sent, dest_loss_pct
+                    ))
+                    .color(dest_color)
+                    .strong(),
+                );
+            });
+            ui.add_space(4.0);
+        }
+
         egui::Frame::group(ui.style())
             .fill(ui.visuals().panel_fill)
             .inner_margin(egui::Margin::same(8))
@@ -231,12 +272,14 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
                     .show(ui, |ui| {
                         egui::Grid::new("mtr_hops_grid")
                             .striped(true)
-                            .spacing([22.0, 7.0])
+                            .spacing([18.0, 7.0])
                             .show(ui, |ui| {
                                 // Cabeçalho da Tabela
                                 ui.label(RichText::new("Salto").strong());
                                 ui.label(RichText::new("Endereço IP").strong());
                                 ui.label(RichText::new("Enviados").strong());
+                                ui.label(RichText::new("Recebidos").strong());
+                                ui.label(RichText::new("Perdidos").strong());
                                 ui.label(RichText::new("Perda %").strong());
                                 ui.label(RichText::new("Atual").strong());
                                 ui.label(RichText::new("Média").strong());
@@ -249,6 +292,7 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
                                         .ip
                                         .map(|i| i.to_string())
                                         .unwrap_or_else(|| "* * * (Sem resposta)".to_string());
+                                    let lost = hop.lost();
                                     let cur = hop
                                         .last_ms
                                         .map(|v| format!("{:.0} ms", v))
@@ -274,23 +318,58 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
                                         Color32::from_rgb(231, 76, 60)
                                     };
 
+                                    // Salto
                                     ui.label(RichText::new(format!("#{:02}", hop.hop)).monospace().strong());
+
+                                    // IP
                                     if hop.ip.is_some() {
                                         ui.label(RichText::new(ip_str).monospace());
                                     } else {
                                         ui.label(RichText::new(ip_str).monospace().color(Color32::GRAY));
                                     }
+
+                                    // Enviados
                                     ui.label(RichText::new(hop.sent.to_string()).monospace());
+
+                                    // Recebidos
+                                    ui.label(RichText::new(hop.received.to_string()).monospace());
+
+                                    // Perdidos
+                                    if lost > 0 {
+                                        ui.label(
+                                            RichText::new(lost.to_string())
+                                                .monospace()
+                                                .color(loss_color)
+                                                .strong(),
+                                        );
+                                    } else {
+                                        ui.label(
+                                            RichText::new("0")
+                                                .monospace()
+                                                .color(Color32::from_rgb(46, 204, 113)),
+                                        );
+                                    }
+
+                                    // Perda %
                                     ui.label(
                                         RichText::new(format!("{:.1}%", hop.loss_pct))
                                             .monospace()
                                             .color(loss_color)
                                             .strong(),
                                     );
+
+                                    // RTT Atual
                                     ui.label(RichText::new(cur).monospace());
+
+                                    // RTT Médio
                                     ui.label(RichText::new(avg).monospace());
+
+                                    // RTT Mínimo
                                     ui.label(RichText::new(min).monospace());
+
+                                    // RTT Máximo
                                     ui.label(RichText::new(max).monospace());
+
                                     ui.end_row();
                                 }
                             });

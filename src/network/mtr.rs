@@ -82,6 +82,11 @@ impl MtrHop {
         let lost = self.sent.saturating_sub(self.received);
         self.loss_pct = (lost as f32 / self.sent as f32) * 100.0;
     }
+
+    /// Retorna a quantidade absoluta de pacotes perdidos no salto.
+    pub fn lost(&self) -> u32 {
+        self.sent.saturating_sub(self.received)
+    }
 }
 
 /// Dispara uma única rodada de sondagem para um TTL específico.
@@ -185,12 +190,14 @@ mod tests {
 
         hop.record_result(Some(Ipv4Addr::new(192, 168, 1, 1)), Some(2.0));
         assert_eq!(hop.received, 1);
+        assert_eq!(hop.lost(), 0);
         assert_eq!(hop.loss_pct, 0.0);
         assert_eq!(hop.min_ms, Some(2.0));
 
         hop.record_result(None, None);
         assert_eq!(hop.sent, 2);
         assert_eq!(hop.received, 1);
+        assert_eq!(hop.lost(), 1);
         assert_eq!(hop.loss_pct, 50.0);
     }
 }
