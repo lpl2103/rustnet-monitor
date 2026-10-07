@@ -222,80 +222,80 @@ fn render_mtr_subtab(ui: &mut Ui, state: &mut ToolsState) {
     if hops.is_empty() {
         ui.label(RichText::new("Clique em 'Iniciar Rastreamento MTR' para mapear a rota.").weak());
     } else {
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Salto").strong().monospace());
-                ui.separator();
-                ui.label(RichText::new(format!("{:<16}", "Endereço IP")).strong().monospace());
-                ui.separator();
-                ui.label(RichText::new("Enviados").strong().monospace());
-                ui.separator();
-                ui.label(RichText::new("Perda %").strong().monospace());
-                ui.separator();
-                ui.label(RichText::new("Atual").strong().monospace());
-                ui.separator();
-                ui.label(RichText::new("Média").strong().monospace());
-                ui.separator();
-                ui.label(RichText::new("Mín").strong().monospace());
-                ui.separator();
-                ui.label(RichText::new("Máx").strong().monospace());
+        egui::Frame::group(ui.style())
+            .fill(ui.visuals().panel_fill)
+            .inner_margin(egui::Margin::same(8))
+            .show(ui, |ui| {
+                egui::ScrollArea::horizontal()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        egui::Grid::new("mtr_hops_grid")
+                            .striped(true)
+                            .spacing([22.0, 7.0])
+                            .show(ui, |ui| {
+                                // Cabeçalho da Tabela
+                                ui.label(RichText::new("Salto").strong());
+                                ui.label(RichText::new("Endereço IP").strong());
+                                ui.label(RichText::new("Enviados").strong());
+                                ui.label(RichText::new("Perda %").strong());
+                                ui.label(RichText::new("Atual").strong());
+                                ui.label(RichText::new("Média").strong());
+                                ui.label(RichText::new("Mín").strong());
+                                ui.label(RichText::new("Máx").strong());
+                                ui.end_row();
+
+                                for hop in &hops {
+                                    let ip_str = hop
+                                        .ip
+                                        .map(|i| i.to_string())
+                                        .unwrap_or_else(|| "* * * (Sem resposta)".to_string());
+                                    let cur = hop
+                                        .last_ms
+                                        .map(|v| format!("{:.0} ms", v))
+                                        .unwrap_or_else(|| "-".to_string());
+                                    let avg = hop
+                                        .avg_ms
+                                        .map(|v| format!("{:.0} ms", v))
+                                        .unwrap_or_else(|| "-".to_string());
+                                    let min = hop
+                                        .min_ms
+                                        .map(|v| format!("{:.0} ms", v))
+                                        .unwrap_or_else(|| "-".to_string());
+                                    let max = hop
+                                        .max_ms
+                                        .map(|v| format!("{:.0} ms", v))
+                                        .unwrap_or_else(|| "-".to_string());
+
+                                    let loss_color = if hop.loss_pct == 0.0 {
+                                        Color32::from_rgb(46, 204, 113)
+                                    } else if hop.loss_pct < 5.0 {
+                                        Color32::from_rgb(241, 196, 15)
+                                    } else {
+                                        Color32::from_rgb(231, 76, 60)
+                                    };
+
+                                    ui.label(RichText::new(format!("#{:02}", hop.hop)).monospace().strong());
+                                    if hop.ip.is_some() {
+                                        ui.label(RichText::new(ip_str).monospace());
+                                    } else {
+                                        ui.label(RichText::new(ip_str).monospace().color(Color32::GRAY));
+                                    }
+                                    ui.label(RichText::new(hop.sent.to_string()).monospace());
+                                    ui.label(
+                                        RichText::new(format!("{:.1}%", hop.loss_pct))
+                                            .monospace()
+                                            .color(loss_color)
+                                            .strong(),
+                                    );
+                                    ui.label(RichText::new(cur).monospace());
+                                    ui.label(RichText::new(avg).monospace());
+                                    ui.label(RichText::new(min).monospace());
+                                    ui.label(RichText::new(max).monospace());
+                                    ui.end_row();
+                                }
+                            });
+                    });
             });
-            ui.separator();
-
-            for hop in &hops {
-                let ip_str = hop
-                    .ip
-                    .map(|i| i.to_string())
-                    .unwrap_or_else(|| "* * * (Sem resposta)".to_string());
-                let cur = hop
-                    .last_ms
-                    .map(|v| format!("{:.0} ms", v))
-                    .unwrap_or_else(|| "-".to_string());
-                let avg = hop
-                    .avg_ms
-                    .map(|v| format!("{:.0} ms", v))
-                    .unwrap_or_else(|| "-".to_string());
-                let min = hop
-                    .min_ms
-                    .map(|v| format!("{:.0} ms", v))
-                    .unwrap_or_else(|| "-".to_string());
-                let max = hop
-                    .max_ms
-                    .map(|v| format!("{:.0} ms", v))
-                    .unwrap_or_else(|| "-".to_string());
-
-                let loss_color = if hop.loss_pct == 0.0 {
-                    Color32::from_rgb(46, 204, 113)
-                } else if hop.loss_pct < 5.0 {
-                    Color32::from_rgb(241, 196, 15)
-                } else {
-                    Color32::from_rgb(231, 76, 60)
-                };
-
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("#{:02}", hop.hop)).monospace().strong());
-                    ui.separator();
-                    ui.label(RichText::new(format!("{:<16}", ip_str)).monospace());
-                    ui.separator();
-                    ui.label(RichText::new(format!("{:>4}", hop.sent)).monospace());
-                    ui.separator();
-                    ui.label(
-                        RichText::new(format!("{:>5.1}%", hop.loss_pct))
-                            .monospace()
-                            .color(loss_color)
-                            .strong(),
-                    );
-                    ui.separator();
-                    ui.label(RichText::new(format!("{:>6}", cur)).monospace());
-                    ui.separator();
-                    ui.label(RichText::new(format!("{:>6}", avg)).monospace());
-                    ui.separator();
-                    ui.label(RichText::new(format!("{:>6}", min)).monospace());
-                    ui.separator();
-                    ui.label(RichText::new(format!("{:>6}", max)).monospace());
-                });
-            }
-        });
     }
 }
 
@@ -445,46 +445,49 @@ fn render_dns_subtab(ui: &mut Ui, state: &mut ToolsState, diagnostic: &NetworkDi
         .unwrap_or_default();
 
     if !results.is_empty() {
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("{:<28}", "Servidor DNS")).strong().monospace());
-                ui.separator();
-                ui.label(RichText::new(format!("{:<15}", "Endereço IP")).strong().monospace());
-                ui.separator();
-                ui.label(RichText::new("Tempo Resposta").strong().monospace());
-                ui.separator();
-                ui.label(RichText::new("Status").strong().monospace());
+        egui::Frame::group(ui.style())
+            .fill(ui.visuals().panel_fill)
+            .inner_margin(egui::Margin::same(8))
+            .show(ui, |ui| {
+                egui::ScrollArea::horizontal()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        egui::Grid::new("dns_benchmark_grid")
+                            .striped(true)
+                            .spacing([24.0, 7.0])
+                            .show(ui, |ui| {
+                                ui.label(RichText::new("Servidor DNS").strong());
+                                ui.label(RichText::new("Endereço IP").strong());
+                                ui.label(RichText::new("Tempo Resposta").strong());
+                                ui.label(RichText::new("Status").strong());
+                                ui.end_row();
+
+                                for r in &results {
+                                    let rtt_str = r
+                                        .rtt_ms
+                                        .map(|v| format!("{:.1} ms", v))
+                                        .unwrap_or_else(|| "-".to_string());
+                                    let (status_str, color) = match &r.status {
+                                        crate::network::dns::DnsStatus::Ok => {
+                                            ("● OK (Resolvido)", Color32::from_rgb(46, 204, 113))
+                                        }
+                                        crate::network::dns::DnsStatus::Timeout => {
+                                            ("● Timeout (Sem resposta)", Color32::from_rgb(231, 76, 60))
+                                        }
+                                        crate::network::dns::DnsStatus::Error(msg) => {
+                                            (msg.as_str(), Color32::from_rgb(241, 196, 15))
+                                        }
+                                    };
+
+                                    ui.label(RichText::new(r.server_name).monospace().strong());
+                                    ui.label(RichText::new(r.server_ip.to_string()).monospace());
+                                    ui.label(RichText::new(rtt_str).monospace().strong());
+                                    ui.label(RichText::new(status_str).color(color).monospace());
+                                    ui.end_row();
+                                }
+                            });
+                    });
             });
-            ui.separator();
-
-            for r in &results {
-                let rtt_str = r
-                    .rtt_ms
-                    .map(|v| format!("{:.1} ms", v))
-                    .unwrap_or_else(|| "-".to_string());
-                let (status_str, color) = match &r.status {
-                    crate::network::dns::DnsStatus::Ok => {
-                        ("● OK (Resolvido)", Color32::from_rgb(46, 204, 113))
-                    }
-                    crate::network::dns::DnsStatus::Timeout => {
-                        ("● Timeout (Sem resposta)", Color32::from_rgb(231, 76, 60))
-                    }
-                    crate::network::dns::DnsStatus::Error(msg) => {
-                        (msg.as_str(), Color32::from_rgb(241, 196, 15))
-                    }
-                };
-
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("{:<28}", r.server_name)).monospace());
-                    ui.separator();
-                    ui.label(RichText::new(format!("{:<15}", r.server_ip)).monospace());
-                    ui.separator();
-                    ui.label(RichText::new(format!("{:>14}", rtt_str)).monospace().strong());
-                    ui.separator();
-                    ui.label(RichText::new(status_str).color(color).monospace());
-                });
-            }
-        });
     }
 }
 
