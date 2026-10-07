@@ -33,6 +33,8 @@ pub struct GeneralConfig {
     pub start_with_windows: bool,
     #[serde(default = "default_true")]
     pub minimize_to_tray: bool,
+    #[serde(default = "default_true")]
+    pub sound_alerts: bool,
     #[serde(default = "default_theme")]
     pub theme: String,
     #[serde(default = "default_language")]
@@ -136,6 +138,7 @@ impl Default for GeneralConfig {
         Self {
             start_with_windows: default_false(),
             minimize_to_tray: default_true(),
+            sound_alerts: default_true(),
             theme: default_theme(),
             language: default_language(),
             log_level: default_log_level(),

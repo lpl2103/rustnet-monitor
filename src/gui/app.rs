@@ -15,10 +15,14 @@ use crate::gui::dashboard::render_dashboard;
 use crate::gui::events::{EventsState, render_events};
 use crate::gui::history::{HistoryState, render_history};
 use crate::gui::settings::{SettingsState, render_settings};
+use crate::gui::tools::{ToolsState, render_tools};
+use crate::network::alerts::AlertManager;
 use crate::network::icmp::PingStatus;
 use crate::network::pinger::{PingUpdate, PingerCommand, PingerService};
 use crate::network::stats::HostStats;
 use crate::network::types::NetworkDiagnostic;
+use crate::network::wan::WanInfo;
+use crate::network::wifi::WifiInfo;
 use crate::updater::{RemoteVersionInfo, UpdateStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +31,7 @@ pub enum ActiveTab {
     Charts,
     History,
     Events,
+    Tools,
     Settings,
 }
 
@@ -47,6 +52,10 @@ pub struct RustNetApp {
     history_state: HistoryState,
     events_state: EventsState,
     settings_state: SettingsState,
+    tools_state: ToolsState,
+    wan_info: Arc<Mutex<Option<WanInfo>>>,
+    wifi_info: Arc<Mutex<Option<WifiInfo>>>,
+    alert_manager: AlertManager,
     logo_texture: Option<egui::TextureHandle>,
     available_update: Arc<Mutex<Option<RemoteVersionInfo>>>,
     update_status: Arc<Mutex<UpdateStatus>>,
@@ -84,6 +93,9 @@ impl RustNetApp {
 
         let available_update = Arc::new(Mutex::new(None));
         let update_status = Arc::new(Mutex::new(UpdateStatus::Idle));
+        let wan_info = Arc::new(Mutex::new(None));
+        let wifi_info = Arc::new(Mutex::new(None));
+        let alert_manager = AlertManager::new(config.general.sound_alerts);
 
         // Inicia verificação assíncrona de atualização no GitHub em background
         let update_info_clone = available_update.clone();
@@ -99,10 +111,29 @@ impl RustNetApp {
                 if let Ok(mut st) = update_status_clone.lock() {
                     *st = UpdateStatus::Idle;
                 }
-            } else {
-                if let Ok(mut st) = update_status_clone.lock() {
-                    *st = UpdateStatus::UpToDate;
-                }
+            } else if let Ok(mut st) = update_status_clone.lock() {
+                *st = UpdateStatus::UpToDate;
+            }
+        });
+
+        // Inicia consulta assíncrona de Wi-Fi e WAN/CGNAT em background
+        let wan_clone = wan_info.clone();
+        let wifi_clone = wifi_info.clone();
+        let local_ip = diagnostic
+            .active_physical_interface
+            .as_ref()
+            .and_then(|i| i.ipv4_addresses.first())
+            .and_then(|ip_str| Ipv4Addr::from_str(ip_str).ok());
+
+        std::thread::spawn(move || {
+            let wifi = crate::network::wifi::query_wifi_telemetry();
+            if let Ok(mut guard) = wifi_clone.lock() {
+                *guard = wifi;
+            }
+
+            let wan = crate::network::wan::query_wan_info(local_ip);
+            if let Ok(mut guard) = wan_clone.lock() {
+                *guard = Some(wan);
             }
         });
 
@@ -123,6 +154,10 @@ impl RustNetApp {
             history_state: HistoryState::default(),
             events_state: EventsState::default(),
             settings_state: SettingsState::default(),
+            tools_state: ToolsState::default(),
+            wan_info,
+            wifi_info,
+            alert_manager,
             logo_texture: None,
             available_update,
             update_status,
@@ -224,6 +259,20 @@ impl eframe::App for RustNetApp {
             }
         }
 
+        // Verificação periódica de alertas sonoros
+        self.alert_manager.enabled = self.config.general.sound_alerts;
+        let is_online = self.diagnostic.active_physical_interface.is_some()
+            && self.stats_list.iter().any(|s| s.last_rtt_ms.is_some());
+        let max_loss = self
+            .stats_list
+            .iter()
+            .map(|s| s.packet_loss_pct as f32)
+            .fold(0.0f32, f32::max);
+        let _ = self.alert_manager.check_and_alert(is_online, max_loss);
+
+        let wan_val = self.wan_info.lock().ok().and_then(|g| g.clone());
+        let wifi_val = self.wifi_info.lock().ok().and_then(|g| g.clone());
+
         // 3. Barra Superior com Navegação em Abas
         egui::Panel::top("top_navigation_bar").show(ui, |ui| {
             ui.add_space(4.0);
@@ -244,6 +293,7 @@ impl eframe::App for RustNetApp {
                 let tabs = [
                     (ActiveTab::Dashboard, "📊 Dashboard"),
                     (ActiveTab::Charts, "📈 Gráficos"),
+                    (ActiveTab::Tools, "🛠 Ferramentas"),
                     (ActiveTab::History, "🕒 Histórico"),
                     (ActiveTab::Events, "🔔 Eventos"),
                     (ActiveTab::Settings, "⚙ Configurações"),
@@ -321,10 +371,22 @@ impl eframe::App for RustNetApp {
                     &self.diagnostic,
                     &self.stats_list,
                     &self.config.thresholds,
+                    &wan_val,
+                    &wifi_val,
                 );
             }
             ActiveTab::Charts => {
                 render_charts(ui, &self.history_points, &mut self.active_hosts_in_chart);
+            }
+            ActiveTab::Tools => {
+                render_tools(
+                    ui,
+                    &mut self.tools_state,
+                    &self.diagnostic,
+                    &self.stats_list,
+                    &wan_val,
+                    &wifi_val,
+                );
             }
             ActiveTab::History => {
                 let db_path = PathBuf::from(&self.config.database.path);

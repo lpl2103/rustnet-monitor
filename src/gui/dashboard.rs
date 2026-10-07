@@ -3,6 +3,8 @@ use eframe::egui::{self, Color32, RichText, Ui};
 use crate::config::settings::LatencyThresholds;
 use crate::network::stats::{HostStats, LatencyQuality};
 use crate::network::types::NetworkDiagnostic;
+use crate::network::wan::{NatType, WanInfo};
+use crate::network::wifi::WifiInfo;
 
 /// Renderiza a aba principal do Dashboard.
 pub fn render_dashboard(
@@ -10,6 +12,8 @@ pub fn render_dashboard(
     diagnostic: &NetworkDiagnostic,
     stats_list: &[HostStats],
     thresholds: &LatencyThresholds,
+    wan_info: &Option<WanInfo>,
+    wifi_info: &Option<WifiInfo>,
 ) {
     ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
 
@@ -92,7 +96,99 @@ pub fn render_dashboard(
             }
         });
 
-    ui.add_space(8.0);
+    // 1.1 Cartões Complementares de Wi-Fi e WAN/CGNAT em Colunas Paralelas
+    let show_wifi = wifi_info.is_some();
+    let show_wan = wan_info.is_some();
+
+    if show_wifi || show_wan {
+        ui.columns(if show_wifi && show_wan { 2 } else { 1 }, |cols| {
+            let mut col_idx = 0;
+
+            if let Some(wifi) = wifi_info {
+                cols[col_idx].group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("📶").size(18.0));
+                        ui.heading(RichText::new("Telemetria Wi-Fi (802.11)").strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let badge_color = match wifi.signal_quality_pct {
+                                75..=100 => Color32::from_rgb(46, 204, 113),
+                                50..=74 => Color32::from_rgb(52, 152, 219),
+                                25..=49 => Color32::from_rgb(241, 196, 15),
+                                _ => Color32::from_rgb(231, 76, 60),
+                            };
+                            ui.label(
+                                RichText::new(format!("● {}", wifi.signal_badge()))
+                                    .color(badge_color)
+                                    .strong(),
+                            );
+                        });
+                    });
+                    ui.separator();
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("SSID (Rede):").strong());
+                        ui.label(RichText::new(&wifi.ssid).strong());
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("BSSID (AP):").strong());
+                        ui.label(RichText::new(&wifi.bssid).monospace());
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Sinal:").strong());
+                        ui.label(format!("{}% ({} dBm)", wifi.signal_quality_pct, wifi.rssi_dbm));
+                        ui.label(RichText::new(format!("| Padrão: {}", wifi.phy_type)).weak());
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Taxa Negociada:").strong());
+                        ui.label(format!("{:.0} Mbps (Tx) / {:.0} Mbps (Rx)", wifi.tx_rate_mbps, wifi.rx_rate_mbps));
+                    });
+                });
+                col_idx += 1;
+            }
+
+            if let Some(wan) = wan_info {
+                cols[col_idx].group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("🌍").size(18.0));
+                        ui.heading(RichText::new("WAN Pública & CGNAT").strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let (nat_color, nat_text) = match wan.nat_type {
+                                NatType::DirectPublicIp => (Color32::from_rgb(46, 204, 113), "IP PÚBLICO"),
+                                NatType::CgnatRfc6598 => (Color32::from_rgb(243, 156, 18), "CGNAT DETECTADO"),
+                                NatType::DoubleNatRfc1918 => (Color32::from_rgb(52, 152, 219), "NAT PRIVADO"),
+                                NatType::Unknown => (Color32::GRAY, "N/D"),
+                            };
+                            ui.label(RichText::new(format!("● {}", nat_text)).color(nat_color).strong());
+                        });
+                    });
+                    ui.separator();
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("IP Externo:").strong());
+                        ui.label(
+                            RichText::new(wan.public_ip.as_deref().unwrap_or("Aguardando..."))
+                                .strong()
+                                .monospace(),
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Provedor / ASN:").strong());
+                        ui.label(wan.isp_organization.as_deref().unwrap_or("Não identificado"));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Localidade:").strong());
+                        ui.label(wan.city_country.as_deref().unwrap_or("N/D"));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Topologia:").strong());
+                        ui.label(wan.nat_type.description());
+                    });
+                });
+            }
+        });
+    }
+
+    ui.add_space(4.0);
 
     // 2. Tabela de Hosts Monitorados
     ui.heading(RichText::new("Hosts Monitorados em Tempo Real").strong());

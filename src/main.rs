@@ -4,6 +4,7 @@ mod config;
 mod database;
 mod gui;
 mod network;
+mod reporting;
 mod updater;
 mod utils;
 

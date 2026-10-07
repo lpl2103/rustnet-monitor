@@ -4,6 +4,7 @@ pub mod dashboard;
 pub mod events;
 pub mod history;
 pub mod settings;
+pub mod tools;
 
 use eframe::egui;
 use std::fs;

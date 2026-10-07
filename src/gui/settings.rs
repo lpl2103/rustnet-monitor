@@ -69,6 +69,10 @@ pub fn render_settings(
                         &mut config.general.start_with_windows,
                         "Iniciar com o Windows",
                     );
+                    ui.checkbox(
+                        &mut config.general.sound_alerts,
+                        "🔊 Alertas Sonoros em Quedas / Perdas",
+                    );
                 });
             });
 
